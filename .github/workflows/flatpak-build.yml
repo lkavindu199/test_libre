@@ -35,37 +35,12 @@ jobs:
         # Create the app bundle directory structure
         mkdir -p ../flathub/app-bundle
         
-        # Copy the built application files
-        if [ -d "dist" ]; then
-          cp -r dist ../flathub/app-bundle/
-        fi
-        if [ -d "build" ]; then
-          cp -r build ../flathub/app-bundle/
-        fi
-        if [ -d "release" ]; then
-          cp -r release ../flathub/app-bundle/
-        fi
-        if [ -d "main" ]; then
-          cp -r main ../flathub/app-bundle/
-        fi
-        if [ -d "renderer" ]; then
-          cp -r renderer ../flathub/app-bundle/
-        fi
-        if [ -d "resources" ]; then
-          cp -r resources ../flathub/app-bundle/
-        fi
+        # Copy the entire built application including node_modules
+        cp -r . ../flathub/app-bundle/
         
-        # Copy package.json and other necessary files
-        cp package.json ../flathub/app-bundle/ 2>/dev/null || true
-        cp *.desktop ../flathub/app-bundle/ 2>/dev/null || true
-        cp *.metainfo.xml ../flathub/app-bundle/ 2>/dev/null || true
-        
+        # Remove unnecessary files to reduce size
         cd ../flathub/app-bundle
-        
-        # Install electron with specific version from original package.json
-        ELECTRON_VERSION=$(node -p "require('./package.json').devDependencies?.electron || require('./package.json').dependencies?.electron || '28.0.0'" 2>/dev/null || echo "28.0.0")
-        echo "Installing Electron version: $ELECTRON_VERSION"
-        npm install electron@$ELECTRON_VERSION --no-audit --no-fund --save-dev
+        rm -rf .git .github .gitignore README.md docs .erb
         
         echo "=== App bundle contents ==="
         ls -la
@@ -105,7 +80,7 @@ jobs:
                 cd /app/lib/librelinkupdesktop
                 export NODE_ENV=production
                 export ELECTRON_IS_DEV=0
-                exec ./node_modules/.bin/electron .
+                exec npx electron .
                 SCRIPT_EOF
               - chmod +x /app/bin/librelinkupdesktop
               - mkdir -p /app/share/applications
@@ -124,24 +99,25 @@ jobs:
               - |
                 if [ -f "/app/lib/librelinkupdesktop/resources/icon.png" ]; then
                   install -Dm644 /app/lib/librelinkupdesktop/resources/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
-                else
-                  # Create a simple fallback icon
-                  echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" | base64 -d > /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png 2>/dev/null || true
+                elif [ -f "/app/lib/librelinkupdesktop/assets/icon.png" ]; then
+                  install -Dm644 /app/lib/librelinkupdesktop/assets/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
                 fi
             sources:
               - type: dir
                 path: app-bundle
         EOF
 
-    - name: Verify and find entry point
+    - name: Verify application structure
       run: |
         cd flathub/app-bundle
-        echo "=== Full directory structure ==="
-        find . -type f -name "*.js" | head -20
-        echo "=== Package.json content ==="
-        cat package.json | grep -A5 -B5 '"main"'
-        echo "=== Main entry from package.json ==="
+        echo "=== Package.json main entry ==="
         node -p "require('./package.json').main" 2>/dev/null || echo "No main entry found"
+        echo "=== Scripts available ==="
+        node -p "JSON.stringify(require('./package.json').scripts, null, 2)" 2>/dev/null || echo "No scripts found"
+        echo "=== Checking dist directory ==="
+        ls -la dist/ 2>/dev/null || echo "No dist directory"
+        echo "=== Checking release directory ==="
+        ls -la release/ 2>/dev/null || echo "No release directory"
 
     - name: Build the Flatpak
       run: |
