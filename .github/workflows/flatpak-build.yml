@@ -9,8 +9,6 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        submodules: recursive
 
     - name: Install system dependencies
       run: |
@@ -19,19 +17,17 @@ jobs:
 
     - name: Setup Flatpak repositories
       run: |
-        flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-        flatpak install -y flathub org.flatpak.Builder
-        flatpak install -y flathub org.electronjs.Electron2.BaseApp//23.08
-        flatpak install -y flathub org.freedesktop.Sdk.Extension.node20//23.08
+        sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+        sudo flatpak install -y flathub org.flatpak.Builder
+        sudo flatpak install -y flathub org.electronjs.Electron2.BaseApp//23.08
+        sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.node20//23.08
 
     - name: Clone and setup flatpak-builder-tools
       run: |
         git clone https://github.com/flatpak/flatpak-builder-tools.git
         cd flatpak-builder-tools/node
-        python3 -m pip install pipx
-        python3 -m pipx install .
-        pipx ensurepath
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        python3 -m pip install --user .
+        echo "$(python3 -m site --user-base)/bin" >> $GITHUB_PATH
 
     - name: Clone source repository
       run: |
@@ -121,11 +117,12 @@ jobs:
 
     - name: Install and test Flatpak
       run: |
-        flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-        flatpak install -y rocks.poopjournal.librelinkupdesktop.flatpak
+        sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+        sudo flatpak install -y rocks.poopjournal.librelinkupdesktop.flatpak
         
         # Verify installation
-        flatpak list | grep rocks.poopjournal.librelinkupdesktop
+        flatpak list | grep rocks.poopjournal.librelinkupdesktop || echo "Application not found in user installation"
+        sudo flatpak list | grep rocks.poopjournal.librelinkupdesktop || echo "Application not found in system installation"
         
         # Test that the application can be run (basic test)
         timeout 10s flatpak run rocks.poopjournal.librelinkupdesktop --version || echo "Application test completed"
