@@ -22,7 +22,7 @@ jobs:
         sudo flatpak install -y flathub org.freedesktop.Sdk//23.08
         sudo flatpak install -y flathub org.flatpak.Builder
 
-    - name: Build and package Electron app
+    - name: Build Electron application
       run: |
         git clone -b feature/trayicon https://github.com/deviitorinc/LibreLinkUpDesktop.git source-repo
         cd source-repo
@@ -31,57 +31,50 @@ jobs:
         npm install --legacy-peer-deps --no-audit --no-fund
         npm run build
         
-        # Create bundle with built files
+        # Create the app bundle directory structure
         mkdir -p ../flathub/app-bundle
         
-        # Copy the built application
-        if [ -d "release/app/dist" ]; then
-          cp -r release/app/dist/* ../flathub/app-bundle/
-        elif [ -d "dist" ]; then
-          cp -r dist/* ../flathub/app-bundle/
-        else
-          # Copy the built main and renderer directories
-          cp -r main ../flathub/app-bundle/ 2>/dev/null || true
-          cp -r renderer ../flathub/app-bundle/ 2>/dev/null || true
+        # Copy the built application files
+        if [ -d "main" ]; then
+          cp -r main ../flathub/app-bundle/
+        fi
+        if [ -d "renderer" ]; then
+          cp -r renderer ../flathub/app-bundle/
+        fi
+        if [ -d "resources" ]; then
+          cp -r resources ../flathub/app-bundle/
         fi
         
-        # Copy package.json and create minimal version
-        if [ -f "package.json" ]; then
-          node -e "
-          const fs = require('fs');
-          const pkg = JSON.parse(fs.readFileSync('package.json'));
-          const minimalPkg = {
-            name: pkg.name,
-            version: pkg.version,
-            main: pkg.main || './main/main.js',
-            dependencies: { 
-              electron: pkg.devDependencies?.electron || pkg.dependencies?.electron || '^latest' 
-            }
-          };
-          fs.writeFileSync('../flathub/app-bundle/package.json', JSON.stringify(minimalPkg, null, 2));
-          "
-        fi
-        
-        # Copy resources and desktop files
-        cp -r resources ../flathub/app-bundle/ 2>/dev/null || true
+        # Copy desktop files
         cp *.desktop ../flathub/app-bundle/ 2>/dev/null || true
         cp *.metainfo.xml ../flathub/app-bundle/ 2>/dev/null || true
+        
+        # Create minimal package.json
+        cat > ../flathub/app-bundle/package.json << 'PKGJSON'
+        {
+          "name": "librelinkupdesktop",
+          "version": "1.0.0",
+          "main": "./main/main.js",
+          "dependencies": {
+            "electron": "^latest"
+          }
+        }
+        PKGJSON
         
         cd ../flathub/app-bundle
         
         # Install electron
-        npm install electron --no-audit --no-fund --legacy-peer-deps
+        npm install electron --no-audit --no-fund
         
-        echo "=== Bundle structure ==="
+        echo "=== App bundle contents ==="
         ls -la
-        echo "=== Main directory ==="
-        ls -la main/ 2>/dev/null || echo "No main directory"
-        echo "=== Renderer directory ==="
-        ls -la renderer/ 2>/dev/null || echo "No renderer directory"
+        find . -type f -name "*.js" | head -10
 
-    - name: Create Flatpak manifest
+    - name: Create Flatpak manifest with proper syntax
       run: |
         cd flathub
+        
+        # Create the manifest with proper here-document syntax
         cat > rocks.poopjournal.librelinkupdesktop.yml << 'EOF'
         app-id: rocks.poopjournal.librelinkupdesktop
         runtime: org.freedesktop.Platform
@@ -101,54 +94,37 @@ jobs:
           - name: librelinkupdesktop
             buildsystem: simple
             build-commands:
+              - mkdir -p /app/lib/librelinkupdesktop
+              - cp -r app-bundle/* /app/lib/librelinkupdesktop/
+              - mkdir -p /app/bin
               - |
-                # Copy application
-                mkdir -p /app/lib/librelinkupdesktop
-                cp -r app-bundle/* /app/lib/librelinkupdesktop/
-                
-                # Create launcher script
-                mkdir -p /app/bin
-                cat > /app/bin/librelinkupdesktop << 'SCRIPT'
+                cat > /app/bin/librelinkupdesktop << 'SCRIPT_EOF'
                 #!/bin/sh
                 cd /app/lib/librelinkupdesktop
                 export NODE_ENV=production
                 export ELECTRON_IS_DEV=0
-                
-                # Use electron from node_modules
-                if [ -f "./node_modules/.bin/electron" ]; then
-                  exec ./node_modules/.bin/electron .
-                else
-                  echo "Error: Electron not found"
-                  exit 1
-                fi
-                SCRIPT
-                chmod +x /app/bin/librelinkupdesktop
-                
-                # Install desktop file
-                mkdir -p /app/share/applications
-                if [ -f "/app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.desktop" ]; then
-                  install -Dm644 /app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.desktop /app/share/applications/rocks.poopjournal.librelinkupdesktop.desktop
-                else
-                  cat > /app/share/applications/rocks.poopjournal.librelinkupdesktop.desktop << 'DESKTOP'
-                  [Desktop Entry]
-                  Type=Application
-                  Name=LibreLinkUp Desktop
-                  Exec=librelinkupdesktop
-                  Icon=rocks.poopjournal.librelinkupdesktop
-                  Comment=LibreLinkUp Desktop Application
-                  Categories=Utility;
-                  Terminal=false
-                  DESKTOP
-                fi
-                
-                # Install icon
-                mkdir -p /app/share/icons/hicolor/512x512/apps/
+                exec ./node_modules/.bin/electron .
+                SCRIPT_EOF
+              - chmod +x /app/bin/librelinkupdesktop
+              - mkdir -p /app/share/applications
+              - |
+                cat > /app/share/applications/rocks.poopjournal.librelinkupdesktop.desktop << 'DESKTOP_EOF'
+                [Desktop Entry]
+                Type=Application
+                Name=LibreLinkUp Desktop
+                Exec=librelinkupdesktop
+                Icon=rocks.poopjournal.librelinkupdesktop
+                Comment=LibreLinkUp Desktop Application
+                Categories=Utility;
+                Terminal=false
+                DESKTOP_EOF
+              - mkdir -p /app/share/icons/hicolor/512x512/apps/
+              - |
                 if [ -f "/app/lib/librelinkupdesktop/resources/icon.png" ]; then
                   install -Dm644 /app/lib/librelinkupdesktop/resources/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
                 fi
-                
-                # Install metainfo
-                mkdir -p /app/share/metainfo
+              - mkdir -p /app/share/metainfo/
+              - |
                 if [ -f "/app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.metainfo.xml" ]; then
                   install -Dm644 /app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.metainfo.xml /app/share/metainfo/rocks.poopjournal.librelinkupdesktop.metainfo.xml
                 fi
@@ -156,6 +132,16 @@ jobs:
               - type: dir
                 path: app-bundle
         EOF
+
+    - name: Verify files exist
+      run: |
+        cd flathub
+        echo "=== Checking app-bundle contents ==="
+        ls -la app-bundle/
+        echo "=== Checking for main directory ==="
+        ls -la app-bundle/main/ 2>/dev/null || echo "No main directory"
+        echo "=== Checking for main.js ==="
+        find app-bundle -name "main.js" | head -5
 
     - name: Build the Flatpak
       run: |
