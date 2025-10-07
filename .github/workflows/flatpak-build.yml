@@ -40,11 +40,12 @@ jobs:
         rm -rf node_modules
         # Generate new sources
         flatpak-node-generator npm package-lock.json
-        # Copy to current directory
-        cp generated-sources.json ../
+        # Copy to flathub directory
+        cp generated-sources.json ../flathub/
 
-    - name: Verify files exist
+    - name: Verify files exist in flathub directory
       run: |
+        cd flathub
         ls -la
         echo "Checking for manifest file..."
         test -f rocks.poopjournal.librelinkupdesktop.yml && echo "Manifest found" || echo "Manifest missing"
@@ -53,21 +54,24 @@ jobs:
 
     - name: Build Flatpak application
       run: |
+        cd flathub
         flatpak-builder --user --install --force-clean build-dir rocks.poopjournal.librelinkupdesktop.yml
 
     - name: Create Flatpak bundle
       run: |
+        cd flathub
         flatpak build-bundle ~/.local/share/flatpak/repo LibreLinkUpDesktop.flatpak rocks.poopjournal.librelinkupdesktop
 
     - name: Upload Flatpak bundle as artifact
       uses: actions/upload-artifact@v4
       with:
         name: LibreLinkUpDesktop-Flatpak
-        path: LibreLinkUpDesktop.flatpak
+        path: flathub/LibreLinkUpDesktop.flatpak
         retention-days: 7
 
     - name: Test Flatpak installation
       run: |
+        cd flathub
         # Test installing from the bundle
         flatpak install -y --user LibreLinkUpDesktop.flatpak
         # Verify it was installed
