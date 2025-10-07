@@ -13,57 +13,55 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y flatpak flatpak-builder python3-pip python3-venv nodejs npm
+        sudo apt install -y flatpak flatpak-builder python3-pip python3-venv
 
-    - name: Setup Flatpak
+    - name: Setup Flatpak (user mode)
       run: |
         flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
         flatpak --user install -y flathub org.flatpak.Builder
         flatpak --user install -y flathub org.electronjs.Electron2.BaseApp//23.08
         flatpak --user install -y flathub org.freedesktop.Sdk.Extension.node20//23.08
 
-    - name: Get source and convert to yarn
+    - name: Get source and generate files
       run: |
         git clone https://github.com/deviitorinc/LibreLinkUpDesktop.git -b feature/trayicon source
         cd source
-        
-        # Install yarn
-        npm install -g yarn
-        
-        # Remove package-lock.json and node_modules
-        rm -rf package-lock.json node_modules
-        
-        # Generate yarn.lock
-        yarn install
         
         # Install flatpak-node-generator
         python3 -m pip install --user pipx
         python3 -m pipx ensurepath
         export PATH="$HOME/.local/bin:$PATH"
-        pipx install flatpak-node-generator
         
-        # Generate from yarn.lock instead
-        flatpak-node-generator yarn yarn.lock --output generated-sources.json
+        # Try installing from git for latest version
+        pipx install git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=node
         
-        if [ -f "generated-sources.json" ]; then
+        # Try generating sources with different approaches
+        flatpak-node-generator npm package-lock.json --output generated-sources-new.json || \
+        flatpak-node-generator npm package-lock.json --xdg-layout --output generated-sources-new.json || \
+        echo "Generation failed, using existing generated-sources.json if available"
+        
+        # Check if generation was successful and replace existing file
+        if [ -f "generated-sources-new.json" ]; then
+          mv generated-sources-new.json generated-sources.json
           cp generated-sources.json ..
-          echo "Successfully generated sources from yarn.lock"
+          echo "Successfully generated and replaced sources"
         else
-          echo "Failed to generate from yarn.lock"
+          echo "Using existing generated-sources.json"
         fi
 
-    - name: Update sources
+    - name: Update sources if generated
       run: |
         if [ -f "generated-sources.json" ]; then
-          cp generated-sources.json .
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add generated-sources.json
-          git commit -m "Update generated-sources.json from yarn.lock" || echo "No changes to commit"
+          git commit -m "Update generated-sources.json" || echo "No changes to commit"
           git push || echo "Nothing to push"
+        else
+          echo "No generated-sources.json to update"
         fi
 
-    - name: Build application
+    - name: Build using existing sources
       run: |
         flatpak-builder --user --install --force-clean build-dir rocks.poopjournal.librelinkupdesktop.yml
 
