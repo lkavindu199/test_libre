@@ -1,23 +1,39 @@
-name: Build Flatpak
+name: Build Flatpak Application
 
 on: [push, workflow_dispatch]
 
 jobs:
-  build:
+  build-flatpak:
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install dependencies
+    - name: Install system dependencies
       run: |
         sudo apt update
         sudo apt install -y flatpak flatpak-builder
+
+    - name: Setup Flatpak with complete runtime stack
+      run: |
         sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-        sudo flatpak install -y flathub org.flatpak.Builder
+        # Update remote info
+        sudo flatpak update --appstream
+        
+        # Install complete SDK stack for 23.08
+        sudo flatpak install -y flathub org.freedesktop.Sdk//23.08
+        sudo flatpak install -y flathub org.freedesktop.Platform//23.08
         sudo flatpak install -y flathub org.electronjs.Electron2.BaseApp//23.08
         sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.node20//23.08
+        sudo flatpak install -y flathub org.flatpak.Builder
+
+    - name: Verify installations
+      run: |
+        echo "Installed runtimes:"
+        flatpak list --runtime | grep freedesktop || echo "No freedesktop runtimes found"
+        echo "Installed SDKs:"
+        flatpak list --runtime | grep SDK || echo "No SDKs found"
 
     - name: Setup flatpak-node-generator
       run: |
@@ -26,19 +42,22 @@ jobs:
         python3 -m pip install --user .
         echo "$(python3 -m site --user-base)/bin" >> $GITHUB_PATH
 
-    - name: Clone source and generate sources
+    - name: Prepare source code
       run: |
-        git clone -b feature/trayicon https://github.com/deviitorinc/LibreLinkUpDesktop.git
-        cd LibreLinkUpDesktop
-        rm -rf node_modules
-        flatpak-node-generator npm package-lock.json
+        git clone -b feature/trayicon https://github.com/deviitorinc/LibreLinkUpDesktop.git source-repo
+        rm -rf source-repo/node_modules
 
-    - name: Create flathub directory with manifest
+    - name: Generate package sources
       run: |
-        mkdir -p flathub
-        cp LibreLinkUpDesktop/generated-sources.json flathub/
-        
-        cat > flathub/rocks.poopjournal.librelinkupdesktop.yml << 'EOF'
+        cd source-repo
+        flatpak-node-generator npm package-lock.json
+        mkdir -p ../flathub
+        cp generated-sources.json ../flathub/
+
+    - name: Create Flatpak manifest
+      run: |
+        cd flathub
+        cat > rocks.poopjournal.librelinkupdesktop.yml << 'EOF'
         app-id: rocks.poopjournal.librelinkupdesktop
         runtime: org.electronjs.Electron2.BaseApp
         runtime-version: '23.08'
@@ -74,18 +93,19 @@ jobs:
                   - zypak-wrapper.sh /app/main/librelinkupdesktop "$@"
         EOF
 
-    - name: Build Flatpak
+    - name: Build the Flatpak
       run: |
         cd flathub
         flatpak-builder --user --install --force-clean build-dir rocks.poopjournal.librelinkupdesktop.yml
 
-    - name: Create bundle
+    - name: Create distributable bundle
       run: |
         cd flathub
         flatpak build-bundle ~/.local/share/flatpak/repo LibreLinkUpDesktop.flatpak rocks.poopjournal.librelinkupdesktop
 
-    - name: Upload artifact
+    - name: Upload Flatpak bundle
       uses: actions/upload-artifact@v4
       with:
         name: LibreLinkUpDesktop-Flatpak
         path: flathub/LibreLinkUpDesktop.flatpak
+        retention-days: 7
