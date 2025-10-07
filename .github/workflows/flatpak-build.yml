@@ -21,6 +21,7 @@ jobs:
         sudo flatpak install -y flathub org.freedesktop.Platform//23.08
         sudo flatpak install -y flathub org.freedesktop.Sdk//23.08
         sudo flatpak install -y flathub org.flatpak.Builder
+        sudo flatpak install -y flathub org.electronjs.Electron2.BaseApp//23.08
 
     - name: Build Electron application
       run: |
@@ -35,6 +36,15 @@ jobs:
         mkdir -p ../flathub/app-bundle
         
         # Copy the built application files
+        if [ -d "dist" ]; then
+          cp -r dist ../flathub/app-bundle/
+        fi
+        if [ -d "build" ]; then
+          cp -r build ../flathub/app-bundle/
+        fi
+        if [ -d "release" ]; then
+          cp -r release ../flathub/app-bundle/
+        fi
         if [ -d "main" ]; then
           cp -r main ../flathub/app-bundle/
         fi
@@ -45,36 +55,28 @@ jobs:
           cp -r resources ../flathub/app-bundle/
         fi
         
-        # Copy desktop files
+        # Copy package.json and other necessary files
+        cp package.json ../flathub/app-bundle/ 2>/dev/null || true
         cp *.desktop ../flathub/app-bundle/ 2>/dev/null || true
         cp *.metainfo.xml ../flathub/app-bundle/ 2>/dev/null || true
         
-        # Create minimal package.json
-        cat > ../flathub/app-bundle/package.json << 'PKGJSON'
-        {
-          "name": "librelinkupdesktop",
-          "version": "1.0.0",
-          "main": "./main/main.js",
-          "dependencies": {
-            "electron": "^latest"
-          }
-        }
-        PKGJSON
-        
         cd ../flathub/app-bundle
         
-        # Install electron
-        npm install electron --no-audit --no-fund
+        # Install electron with specific version from original package.json
+        ELECTRON_VERSION=$(node -p "require('./package.json').devDependencies?.electron || require('./package.json').dependencies?.electron || '28.0.0'" 2>/dev/null || echo "28.0.0")
+        echo "Installing Electron version: $ELECTRON_VERSION"
+        npm install electron@$ELECTRON_VERSION --no-audit --no-fund --save-dev
         
         echo "=== App bundle contents ==="
         ls -la
-        find . -type f -name "*.js" | head -10
+        echo "=== Checking for main entry point ==="
+        find . -name "main.js" -o -name "electron.js" -o -name "index.js" | head -10
 
-    - name: Create Flatpak manifest with proper syntax
+    - name: Create Flatpak manifest
       run: |
         cd flathub
         
-        # Create the manifest with proper here-document syntax
+        # Create the manifest
         cat > rocks.poopjournal.librelinkupdesktop.yml << 'EOF'
         app-id: rocks.poopjournal.librelinkupdesktop
         runtime: org.freedesktop.Platform
@@ -122,26 +124,24 @@ jobs:
               - |
                 if [ -f "/app/lib/librelinkupdesktop/resources/icon.png" ]; then
                   install -Dm644 /app/lib/librelinkupdesktop/resources/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
-                fi
-              - mkdir -p /app/share/metainfo/
-              - |
-                if [ -f "/app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.metainfo.xml" ]; then
-                  install -Dm644 /app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.metainfo.xml /app/share/metainfo/rocks.poopjournal.librelinkupdesktop.metainfo.xml
+                else
+                  # Create a simple fallback icon
+                  echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" | base64 -d > /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png 2>/dev/null || true
                 fi
             sources:
               - type: dir
                 path: app-bundle
         EOF
 
-    - name: Verify files exist
+    - name: Verify and find entry point
       run: |
-        cd flathub
-        echo "=== Checking app-bundle contents ==="
-        ls -la app-bundle/
-        echo "=== Checking for main directory ==="
-        ls -la app-bundle/main/ 2>/dev/null || echo "No main directory"
-        echo "=== Checking for main.js ==="
-        find app-bundle -name "main.js" | head -5
+        cd flathub/app-bundle
+        echo "=== Full directory structure ==="
+        find . -type f -name "*.js" | head -20
+        echo "=== Package.json content ==="
+        cat package.json | grep -A5 -B5 '"main"'
+        echo "=== Main entry from package.json ==="
+        node -p "require('./package.json').main" 2>/dev/null || echo "No main entry found"
 
     - name: Build the Flatpak
       run: |
