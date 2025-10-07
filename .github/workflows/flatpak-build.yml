@@ -20,41 +20,27 @@ jobs:
         sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
         sudo flatpak install -y flathub org.freedesktop.Platform//23.08
         sudo flatpak install -y flathub org.freedesktop.Sdk//23.08
-        sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.node20//23.08
         sudo flatpak install -y flathub org.flatpak.Builder
 
-    - name: Setup flatpak-node-generator
-      run: |
-        git clone https://github.com/flatpak/flatpak-builder-tools.git
-        cd flatpak-builder-tools/node
-        python3 -m pip install --user .
-        echo "$(python3 -m site --user-base)/bin" >> $GITHUB_PATH
-
-    - name: Prepare source code
+    - name: Build Electron app outside Flatpak
       run: |
         git clone -b feature/trayicon https://github.com/deviitorinc/LibreLinkUpDesktop.git source-repo
-        rm -rf source-repo/node_modules
-
-    - name: Generate package sources
-      run: |
-        cd source-repo
-        flatpak-node-generator npm package-lock.json
-        mkdir -p ../flathub
-        cp generated-sources.json ../flathub/
-
-    - name: Build and package Electron app
-      run: |
         cd source-repo
         npm install --legacy-peer-deps --no-audit --no-fund
         npm run build
         
-        # Check what was built
-        echo "=== Build output ==="
-        find . -type f -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" | head -10
-        ls -la release/ || echo "No release directory"
-        ls -la dist/ || echo "No dist directory"
+        # Create a simple package structure
+        mkdir -p ../app-bundle
+        cp -r . ../app-bundle/
+        cd ../app-bundle
+        
+        # Install production dependencies only
+        npm install --production --no-audit --no-fund --legacy-peer-deps
+        
+        echo "=== Final app structure ==="
+        find . -name "*.js" -o -name "*.html" -o -name "package.json" | head -20
 
-    - name: Create Flatpak manifest using electron-base
+    - name: Create simple Flatpak manifest
       run: |
         mkdir -p flathub
         cd flathub
@@ -63,8 +49,6 @@ jobs:
         runtime: org.freedesktop.Platform
         runtime-version: '23.08'
         sdk: org.freedesktop.Sdk
-        sdk-extensions:
-          - org.freedesktop.Sdk.Extension.node20
         command: sh
         finish-args:
           - --share=ipc
@@ -73,54 +57,52 @@ jobs:
           - --socket=wayland
           - --device=dri
           - --filesystem=home
-          - --filesystem=xdg-run/gvfs
 
         modules:
-          - name: app-bundle
+          - name: librelinkupdesktop
             buildsystem: simple
             build-commands:
               - |
-                # Install Node.js dependencies
-                export PATH="/usr/lib/sdk/node20/bin:$PATH"
-                npm install --legacy-peer-deps --no-audit --no-fund
-                
-                # Build the app
-                npm run build
-                
-                # The app should be built in release/app/dist/ or similar
-                # Copy the entire app structure
+                # Copy the pre-built application
                 mkdir -p /app/lib/librelinkupdesktop
-                if [ -d "release/app/dist" ]; then
-                  cp -r release/app/dist/* /app/lib/librelinkupdesktop/
-                elif [ -d "dist" ]; then
-                  cp -r dist/* /app/lib/librelinkupdesktop/
-                else
-                  # Fallback: copy the entire built structure
-                  cp -r ./* /app/lib/librelinkupdesktop/ || true
-                fi
+                cp -r ../app-bundle/* /app/lib/librelinkupdesktop/
                 
-                # Create a launcher script that uses system electron
+                # Install electron in the app directory
+                cd /app/lib/librelinkupdesktop
+                npm install electron --save --production --no-audit --no-fund
+                
+                # Create launcher script
+                mkdir -p /app/bin
                 cat > /app/bin/librelinkupdesktop << 'SCRIPT'
                 #!/bin/sh
-                # Use electron from node_modules or system
-                if [ -f "/app/lib/librelinkupdesktop/node_modules/electron/dist/electron" ]; then
-                  exec /app/lib/librelinkupdesktop/node_modules/electron/dist/electron /app/lib/librelinkupdesktop
-                else
-                  # Try to use system electron or flatpak electron
-                  exec electron /app/lib/librelinkupdesktop
-                fi
+                cd /app/lib/librelinkupdesktop
+                exec ./node_modules/.bin/electron .
                 SCRIPT
                 chmod +x /app/bin/librelinkupdesktop
                 
-                # Install desktop files
-                install -Dm644 resources/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
-                install -Dm644 rocks.poopjournal.librelinkupdesktop.desktop /app/share/applications/rocks.poopjournal.librelinkupdesktop.desktop
-                install -Dm644 rocks.poopjournal.librelinkupdesktop.metainfo.xml /app/share/metainfo/rocks.poopjournal.librelinkupdesktop.metainfo.xml
+                # Create basic desktop file
+                mkdir -p /app/share/applications
+                cat > /app/share/applications/rocks.poopjournal.librelinkupdesktop.desktop << 'DESKTOP'
+                [Desktop Entry]
+                Name=LibreLinkUp Desktop
+                Exec=librelinkupdesktop
+                Icon=rocks.poopjournal.librelinkupdesktop
+                Type=Application
+                Categories=Utility;
+                DESKTOP
+                
+                # Create basic icon
+                mkdir -p /app/share/icons/hicolor/512x512/apps/
+                if [ -f "resources/icon.png" ]; then
+                  cp resources/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
+                else
+                  # Create placeholder icon
+                  convert -size 512x512 xc:blue /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png 2>/dev/null || \
+                  echo "No icon available, using default"
+                fi
             sources:
-              - type: git
-                url: https://github.com/deviitorinc/LibreLinkUpDesktop.git
-                branch: feature/trayicon
-              - generated-sources.json
+              - type: dir
+                path: ../app-bundle
         EOF
 
     - name: Build the Flatpak
