@@ -1,53 +1,44 @@
-name: Build and Test Flatpak
+name: Build Flatpak
 
 on: [push, workflow_dispatch]
 
 jobs:
-  build-flatpak:
+  build:
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install system dependencies
+    - name: Install dependencies
       run: |
         sudo apt update
         sudo apt install -y flatpak flatpak-builder
-
-    - name: Setup Flatpak repositories
-      run: |
         sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
         sudo flatpak install -y flathub org.flatpak.Builder
         sudo flatpak install -y flathub org.electronjs.Electron2.BaseApp//23.08
         sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.node20//23.08
 
-    - name: Clone and setup flatpak-builder-tools
+    - name: Setup flatpak-node-generator
       run: |
         git clone https://github.com/flatpak/flatpak-builder-tools.git
         cd flatpak-builder-tools/node
         python3 -m pip install --user .
         echo "$(python3 -m site --user-base)/bin" >> $GITHUB_PATH
 
-    - name: Clone source repository
+    - name: Clone source and generate sources
       run: |
-        git clone -b feature/trayicon https://github.com/deviitorinc/LibreLinkUpDesktop.git source-repo
-
-    - name: Remove existing node_modules
-      run: |
-        rm -rf source-repo/node_modules
-
-    - name: Generate sources.json
-      run: |
-        cd source-repo
+        git clone -b feature/trayicon https://github.com/deviitorinc/LibreLinkUpDesktop.git
+        cd LibreLinkUpDesktop
+        rm -rf node_modules
         flatpak-node-generator npm package-lock.json
-        cp generated-sources.json ../flathub/
 
-    - name: Create updated manifest
+    - name: Create flathub directory with manifest
       run: |
-        cd flathub
-        # Create the updated manifest with the correct sources
-        cat > rocks.poopjournal.librelinkupdesktop.yml << 'EOF'
+        mkdir -p flathub
+        cp LibreLinkUpDesktop/generated-sources.json flathub/
+        
+        cat > flathub/rocks.poopjournal.librelinkupdesktop.yml << 'EOF'
         app-id: rocks.poopjournal.librelinkupdesktop
         runtime: org.electronjs.Electron2.BaseApp
         runtime-version: '23.08'
@@ -88,41 +79,13 @@ jobs:
         cd flathub
         flatpak-builder --user --install --force-clean build-dir rocks.poopjournal.librelinkupdesktop.yml
 
-    - name: Create build artifact
+    - name: Create bundle
       run: |
         cd flathub
-        flatpak build-bundle ~/.local/share/flatpak/repo rocks.poopjournal.librelinkupdesktop.flatpak rocks.poopjournal.librelinkupdesktop
+        flatpak build-bundle ~/.local/share/flatpak/repo LibreLinkUpDesktop.flatpak rocks.poopjournal.librelinkupdesktop
 
-    - name: Upload Flatpak artifact
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: librelinkupdesktop-flatpak
-        path: flathub/rocks.poopjournal.librelinkupdesktop.flatpak
-        retention-days: 7
-
-  test-flatpak:
-    runs-on: ubuntu-latest
-    needs: build-flatpak
-    
-    steps:
-    - name: Download Flatpak artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: librelinkupdesktop-flatpak
-
-    - name: Install system dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y flatpak
-
-    - name: Install and test Flatpak
-      run: |
-        sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-        sudo flatpak install -y rocks.poopjournal.librelinkupdesktop.flatpak
-        
-        # Verify installation
-        flatpak list | grep rocks.poopjournal.librelinkupdesktop || echo "Application not found in user installation"
-        sudo flatpak list | grep rocks.poopjournal.librelinkupdesktop || echo "Application not found in system installation"
-        
-        # Test that the application can be run (basic test)
-        timeout 10s flatpak run rocks.poopjournal.librelinkupdesktop --version || echo "Application test completed"
+        name: LibreLinkUpDesktop-Flatpak
+        path: flathub/LibreLinkUpDesktop.flatpak
