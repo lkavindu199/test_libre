@@ -42,7 +42,7 @@ jobs:
         mkdir -p ../flathub
         cp generated-sources.json ../flathub/
 
-    - name: Create Flatpak manifest for Electron app
+    - name: Create Flatpak manifest with SDK activation
       run: |
         cd flathub
         cat > rocks.poopjournal.librelinkupdesktop.yml << 'EOF'
@@ -52,7 +52,7 @@ jobs:
         sdk: org.freedesktop.Sdk
         sdk-extensions:
           - org.freedesktop.Sdk.Extension.node20
-        command: electron
+        command: librelinkupdesktop
         finish-args:
           - --share=ipc
           - --share=network
@@ -63,33 +63,25 @@ jobs:
           - --filesystem=xdg-run/gvfs
 
         modules:
-          - name: electron
-            buildsystem: simple
-            build-commands:
-              - npm install electron --save-dev
-              - cp node_modules/electron/dist/electron /app/bin/electron
-            sources:
-              - type: dir
-                path: .
-
           - name: librelinkupdesktop
             buildsystem: simple
             build-commands:
-              - npm install
-              - npm run build
-              - install -Dm755 dist/librelinkupdesktop /app/bin/librelinkupdesktop
-              - install -Dm644 resources/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
-              - install -Dm644 rocks.poopjournal.librelinkupdesktop.desktop /app/share/applications/rocks.poopjournal.librelinkupdesktop.desktop
-              - install -Dm644 rocks.poopjournal.librelinkupdesktop.metainfo.xml /app/share/metainfo/rocks.poopjournal.librelinkupdesktop.metainfo.xml
+              - |
+                # Activate the Node.js SDK extension
+                export PATH="/usr/lib/sdk/node20/bin:$PATH"
+                node --version
+                npm --version
+                npm install
+                npm run build
+                install -Dm755 dist/librelinkupdesktop /app/bin/librelinkupdesktop
+                install -Dm644 resources/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
+                install -Dm644 rocks.poopjournal.librelinkupdesktop.desktop /app/share/applications/rocks.poopjournal.librelinkupdesktop.desktop
+                install -Dm644 rocks.poopjournal.librelinkupdesktop.metainfo.xml /app/share/metainfo/rocks.poopjournal.librelinkupdesktop.metainfo.xml
             sources:
               - type: git
                 url: https://github.com/deviitorinc/LibreLinkUpDesktop.git
                 branch: feature/trayicon
               - generated-sources.json
-              - type: script
-                dest-filename: run.sh
-                commands:
-                  - /app/bin/electron /app/bin/librelinkupdesktop "$@"
         EOF
 
     - name: Build the Flatpak
