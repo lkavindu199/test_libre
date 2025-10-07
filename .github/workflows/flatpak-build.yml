@@ -42,7 +42,16 @@ jobs:
         mkdir -p ../flathub
         cp generated-sources.json ../flathub/
 
-    - name: Create Flatpak manifest with SDK activation
+    - name: Pre-download npm dependencies (to avoid network issues in sandbox)
+      run: |
+        cd source-repo
+        # Use system npm to pre-download dependencies
+        npm install --cache npm_cache
+        # Create a tarball of node_modules for use in the build
+        tar -czf node_modules.tar.gz node_modules/
+        cp node_modules.tar.gz ../flathub/
+
+    - name: Create Flatpak manifest with offline support
       run: |
         cd flathub
         cat > rocks.poopjournal.librelinkupdesktop.yml << 'EOF'
@@ -69,9 +78,24 @@ jobs:
               - |
                 # Activate the Node.js SDK extension
                 export PATH="/usr/lib/sdk/node20/bin:$PATH"
-                node --version
-                npm --version
-                npm install
+                
+                # Extract pre-downloaded node_modules to avoid network issues
+                if [ -f node_modules.tar.gz ]; then
+                  echo "Using pre-downloaded node_modules..."
+                  tar -xzf node_modules.tar.gz
+                else
+                  echo "Pre-downloaded node_modules not found, using npm install..."
+                  # Retry mechanism for npm install
+                  for i in {1..3}; do
+                    if npm install --no-audit --no-fund; then
+                      break
+                    else
+                      echo "npm install attempt $i failed, retrying..."
+                      sleep 5
+                    fi
+                  done
+                fi
+                
                 npm run build
                 install -Dm755 dist/librelinkupdesktop /app/bin/librelinkupdesktop
                 install -Dm644 resources/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
@@ -82,12 +106,24 @@ jobs:
                 url: https://github.com/deviitorinc/LibreLinkUpDesktop.git
                 branch: feature/trayicon
               - generated-sources.json
+              - type: archive
+                path: node_modules.tar.gz
+                dest: node_modules.tar.gz
         EOF
 
-    - name: Build the Flatpak
+    - name: Build the Flatpak with retry
       run: |
         cd flathub
-        flatpak-builder --user --install --force-clean build-dir rocks.poopjournal.librelinkupdesktop.yml
+        # Retry the build in case of network issues
+        for i in {1..3}; do
+          if flatpak-builder --user --install --force-clean build-dir rocks.poopjournal.librelinkupdesktop.yml; then
+            echo "Build successful on attempt $i"
+            break
+          else
+            echo "Build attempt $i failed, retrying..."
+            sleep 10
+          fi
+        done
 
     - name: Create distributable bundle
       run: |
