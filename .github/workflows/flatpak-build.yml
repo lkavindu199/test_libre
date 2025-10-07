@@ -21,10 +21,9 @@ jobs:
         # Update remote info
         sudo flatpak update --appstream
         
-        # Install complete SDK stack for 23.08
+        # Install complete SDK stack
         sudo flatpak install -y flathub org.freedesktop.Sdk//23.08
         sudo flatpak install -y flathub org.freedesktop.Platform//23.08
-        sudo flatpak install -y flathub org.electronjs.Electron2.BaseApp//23.08
         sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.node20//23.08
         sudo flatpak install -y flathub org.flatpak.Builder
 
@@ -34,6 +33,8 @@ jobs:
         flatpak list --runtime | grep freedesktop || echo "No freedesktop runtimes found"
         echo "Installed SDKs:"
         flatpak list --runtime | grep SDK || echo "No SDKs found"
+        echo "Available Electron runtimes:"
+        flatpak remote-ls flathub | grep -i electron || echo "No Electron runtimes found"
 
     - name: Setup flatpak-node-generator
       run: |
@@ -59,7 +60,7 @@ jobs:
         cd flathub
         cat > rocks.poopjournal.librelinkupdesktop.yml << 'EOF'
         app-id: rocks.poopjournal.librelinkupdesktop
-        runtime: org.electronjs.Electron2.BaseApp
+        runtime: org.freedesktop.Platform
         runtime-version: '23.08'
         sdk: org.freedesktop.Sdk
         sdk-extensions:
@@ -74,11 +75,27 @@ jobs:
           - --filesystem=home
           - --filesystem=xdg-run/gvfs
 
+        build-options:
+          env:
+            NODE_ENV: production
+
         modules:
+          - name: nodejs
+            buildsystem: simple
+            build-commands:
+              - install -Dm755 /usr/bin/flatpak-node /app/bin/flatpak-node
+            sources:
+              - type: script
+                commands:
+                  - flatpak-node
+                dest-filename: flatpak-node
+
           - name: librelinkupdesktop
             buildsystem: simple
             build-commands:
-              - chmod +x /app/main/run.sh
+              - npm install
+              - npm run build
+              - install -Dm755 dist/librelinkupdesktop /app/bin/librelinkupdesktop
               - install -Dm644 resources/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
               - install -Dm644 rocks.poopjournal.librelinkupdesktop.desktop /app/share/applications/rocks.poopjournal.librelinkupdesktop.desktop
               - install -Dm644 rocks.poopjournal.librelinkupdesktop.metainfo.xml /app/share/metainfo/rocks.poopjournal.librelinkupdesktop.metainfo.xml
@@ -87,10 +104,6 @@ jobs:
                 url: https://github.com/deviitorinc/LibreLinkUpDesktop.git
                 branch: feature/trayicon
               - generated-sources.json
-              - type: script
-                dest-filename: run.sh
-                commands:
-                  - zypak-wrapper.sh /app/main/librelinkupdesktop "$@"
         EOF
 
     - name: Build the Flatpak
