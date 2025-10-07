@@ -7,65 +7,50 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Flathub repo (this repo)
+    # 1. Checkout the Flathub repo (contains the .yml and generated-sources.json)
+    - name: Checkout Flathub repo
       uses: actions/checkout@v4
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
 
+    # 2. Install Flatpak dependencies
     - name: Install dependencies
       run: |
         sudo apt update
         sudo apt install -y flatpak flatpak-builder python3-pip python3-venv
 
-    - name: Setup Flatpak (user mode)
+    # 3. Setup Flatpak environment
+    - name: Setup Flatpak environment
       run: |
         flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
         flatpak --user install -y flathub org.flatpak.Builder
         flatpak --user install -y flathub org.electronjs.Electron2.BaseApp//23.08
         flatpak --user install -y flathub org.freedesktop.Sdk.Extension.node20//23.08
 
-    - name: Clone upstream Electron source
-      run: |
-        git clone https://github.com/deviitorinc/LibreLinkUpDesktop.git -b feature/trayicon source
-        echo "✅ Cloned Electron source into $(pwd)/source"
-
-    - name: Install flatpak-node-generator
+    # 4. (Optional) Regenerate npm dependency sources if package-lock.json changes
+    #    You can skip this step unless you are updating dependencies
+    - name: Regenerate generated-sources.json (optional)
+      if: false   # Set to true when you need to regenerate
       run: |
         python3 -m pip install --user pipx
         python3 -m pipx ensurepath
         export PATH="$HOME/.local/bin:$PATH"
         pipx install git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=node
 
-    - name: Generate or update generated-sources.json
-      run: |
+        # Clone upstream source to generate sources
+        git clone https://github.com/deviitorinc/LibreLinkUpDesktop.git -b feature/trayicon source
         cd source
-        if [ -f "package-lock.json" ]; then
-          echo "🔧 Generating Flatpak sources..."
-          flatpak-node-generator npm package-lock.json --output ../generated-sources-new.json || \
-          flatpak-node-generator npm package-lock.json --xdg-layout --output ../generated-sources-new.json
-          cd ..
-          if [ -f "generated-sources-new.json" ]; then
-            mv generated-sources-new.json generated-sources.json
-            echo "✅ Successfully generated new generated-sources.json"
-          else
-            echo "⚠️ Failed to generate sources. Using existing file if present."
-          fi
-        else
-          echo "❌ No package-lock.json found in source directory."
-        fi
+        flatpak-node-generator npm package-lock.json --output ../generated-sources-new.json
+        cd ..
+        mv generated-sources-new.json generated-sources.json
 
-    - name: Commit updated generated-sources.json (if changed)
-      run: |
-        if [ -f "generated-sources.json" ]; then
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add generated-sources.json
-          git commit -m "Update generated-sources.json" || echo "No changes to commit"
-          git push || echo "Push skipped (no permissions or PR context)"
-        else
-          echo "No generated-sources.json found to commit."
-        fi
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        git add generated-sources.json
+        git commit -m "Update generated-sources.json" || echo "No changes to commit"
+        git push || echo "Push skipped (no permissions or PR context)"
 
+    # 5. Build the Flatpak
     - name: Build Flatpak
       run: |
         echo "🏗️ Building Flatpak..."
@@ -76,6 +61,7 @@ jobs:
           exit 1
         fi
 
+    # 6. Create Flatpak bundle
     - name: Create Flatpak bundle
       run: |
         echo "📦 Creating Flatpak bundle..."
@@ -83,6 +69,7 @@ jobs:
         flatpak build-bundle repo librelinkupdesktop.flatpak rocks.poopjournal.librelinkupdesktop
         echo "✅ Bundle created: librelinkupdesktop.flatpak"
 
+    # 7. Upload build artifact
     - name: Upload Flatpak artifact
       uses: actions/upload-artifact@v4
       with:
