@@ -13,37 +13,57 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y flatpak flatpak-builder python3-pip python3-venv
+        sudo apt install -y flatpak flatpak-builder python3-pip python3-venv nodejs npm
 
-    - name: Setup Flatpak (user mode)
+    - name: Setup Flatpak
       run: |
-        # Configure Flatpak for user mode instead of system mode
         flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
         flatpak --user install -y flathub org.flatpak.Builder
         flatpak --user install -y flathub org.electronjs.Electron2.BaseApp//23.08
         flatpak --user install -y flathub org.freedesktop.Sdk.Extension.node20//23.08
 
-    - name: Get source and generate files
+    - name: Get source and convert to yarn
       run: |
         git clone https://github.com/deviitorinc/LibreLinkUpDesktop.git -b feature/trayicon source
         cd source
+        
+        # Install yarn
+        npm install -g yarn
+        
+        # Remove package-lock.json and node_modules
+        rm -rf package-lock.json node_modules
+        
+        # Generate yarn.lock
+        yarn install
+        
+        # Install flatpak-node-generator
         python3 -m pip install --user pipx
         python3 -m pipx ensurepath
         export PATH="$HOME/.local/bin:$PATH"
         pipx install flatpak-node-generator
-        flatpak-node-generator npm package-lock.json
-        cp generated-sources.json ..
+        
+        # Generate from yarn.lock instead
+        flatpak-node-generator yarn yarn.lock --output generated-sources.json
+        
+        if [ -f "generated-sources.json" ]; then
+          cp generated-sources.json ..
+          echo "Successfully generated sources from yarn.lock"
+        else
+          echo "Failed to generate from yarn.lock"
+        fi
 
     - name: Update sources
       run: |
-        cp generated-sources.json .
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add generated-sources.json
-        git commit -m "Update generated-sources.json" || echo "No changes to commit"
-        git push || echo "Nothing to push"
+        if [ -f "generated-sources.json" ]; then
+          cp generated-sources.json .
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add generated-sources.json
+          git commit -m "Update generated-sources.json from yarn.lock" || echo "No changes to commit"
+          git push || echo "Nothing to push"
+        fi
 
-    - name: Build and install (user mode)
+    - name: Build application
       run: |
         flatpak-builder --user --install --force-clean build-dir rocks.poopjournal.librelinkupdesktop.yml
 
