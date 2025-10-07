@@ -32,17 +32,17 @@ jobs:
         npm run build
         
         # Create bundle with built files
-        mkdir -p ../app-bundle
+        mkdir -p ../flathub/app-bundle
         
-        # Copy the built application (main and renderer directories)
+        # Copy the built application
         if [ -d "release/app/dist" ]; then
-          cp -r release/app/dist/* ../app-bundle/
+          cp -r release/app/dist/* ../flathub/app-bundle/
         elif [ -d "dist" ]; then
-          cp -r dist/* ../app-bundle/
+          cp -r dist/* ../flathub/app-bundle/
         else
           # Copy the built main and renderer directories
-          cp -r main ../app-bundle/ 2>/dev/null || true
-          cp -r renderer ../app-bundle/ 2>/dev/null || true
+          cp -r main ../flathub/app-bundle/ 2>/dev/null || true
+          cp -r renderer ../flathub/app-bundle/ 2>/dev/null || true
         fi
         
         # Copy package.json and create minimal version
@@ -58,16 +58,16 @@ jobs:
               electron: pkg.devDependencies?.electron || pkg.dependencies?.electron || '^latest' 
             }
           };
-          fs.writeFileSync('../app-bundle/package.json', JSON.stringify(minimalPkg, null, 2));
+          fs.writeFileSync('../flathub/app-bundle/package.json', JSON.stringify(minimalPkg, null, 2));
           "
         fi
         
         # Copy resources and desktop files
-        cp -r resources ../app-bundle/ 2>/dev/null || true
-        cp *.desktop ../app-bundle/ 2>/dev/null || true
-        cp *.metainfo.xml ../app-bundle/ 2>/dev/null || true
+        cp -r resources ../flathub/app-bundle/ 2>/dev/null || true
+        cp *.desktop ../flathub/app-bundle/ 2>/dev/null || true
+        cp *.metainfo.xml ../flathub/app-bundle/ 2>/dev/null || true
         
-        cd ../app-bundle
+        cd ../flathub/app-bundle
         
         # Install electron
         npm install electron --no-audit --no-fund --legacy-peer-deps
@@ -81,7 +81,6 @@ jobs:
 
     - name: Create Flatpak manifest
       run: |
-        mkdir -p flathub
         cd flathub
         cat > rocks.poopjournal.librelinkupdesktop.yml << 'EOF'
         app-id: rocks.poopjournal.librelinkupdesktop
@@ -105,7 +104,7 @@ jobs:
               - |
                 # Copy application
                 mkdir -p /app/lib/librelinkupdesktop
-                cp -r ../app-bundle/* /app/lib/librelinkupdesktop/
+                cp -r app-bundle/* /app/lib/librelinkupdesktop/
                 
                 # Create launcher script
                 mkdir -p /app/bin
@@ -128,7 +127,7 @@ jobs:
                 # Install desktop file
                 mkdir -p /app/share/applications
                 if [ -f "/app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.desktop" ]; then
-                  install -Dm644 /app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.desktop /app/share/applications/
+                  install -Dm644 /app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.desktop /app/share/applications/rocks.poopjournal.librelinkupdesktop.desktop
                 else
                   cat > /app/share/applications/rocks.poopjournal.librelinkupdesktop.desktop << 'DESKTOP'
                   [Desktop Entry]
@@ -151,11 +150,11 @@ jobs:
                 # Install metainfo
                 mkdir -p /app/share/metainfo
                 if [ -f "/app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.metainfo.xml" ]; then
-                  install -Dm644 /app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.metainfo.xml /app/share/metainfo/
+                  install -Dm644 /app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.metainfo.xml /app/share/metainfo/rocks.poopjournal.librelinkupdesktop.metainfo.xml
                 fi
             sources:
               - type: dir
-                path: ../app-bundle
+                path: app-bundle
         EOF
 
     - name: Build the Flatpak
