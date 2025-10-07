@@ -31,17 +31,21 @@ jobs:
         npm install --legacy-peer-deps --no-audit --no-fund
         npm run build
         
-        # Create minimal bundle with just the built files
+        # Create bundle with built files
         mkdir -p ../app-bundle
         
-        # Copy the essential built files
+        # Copy the built application (main and renderer directories)
         if [ -d "release/app/dist" ]; then
           cp -r release/app/dist/* ../app-bundle/
         elif [ -d "dist" ]; then
           cp -r dist/* ../app-bundle/
+        else
+          # Copy the built main and renderer directories
+          cp -r main ../app-bundle/ 2>/dev/null || true
+          cp -r renderer ../app-bundle/ 2>/dev/null || true
         fi
         
-        # Copy package.json without scripts
+        # Copy package.json and create minimal version
         if [ -f "package.json" ]; then
           node -e "
           const fs = require('fs');
@@ -49,26 +53,31 @@ jobs:
           const minimalPkg = {
             name: pkg.name,
             version: pkg.version,
-            main: pkg.main,
-            dependencies: { electron: pkg.devDependencies?.electron || '^latest' }
+            main: pkg.main || './main/main.js',
+            dependencies: { 
+              electron: pkg.devDependencies?.electron || pkg.dependencies?.electron || '^latest' 
+            }
           };
           fs.writeFileSync('../app-bundle/package.json', JSON.stringify(minimalPkg, null, 2));
           "
         fi
         
-        # Copy resources
+        # Copy resources and desktop files
         cp -r resources ../app-bundle/ 2>/dev/null || true
         cp *.desktop ../app-bundle/ 2>/dev/null || true
         cp *.metainfo.xml ../app-bundle/ 2>/dev/null || true
         
         cd ../app-bundle
         
-        # Install only electron
-        npm install electron --no-audit --no-fund
+        # Install electron
+        npm install electron --no-audit --no-fund --legacy-peer-deps
         
-        echo "=== Final bundle ==="
+        echo "=== Bundle structure ==="
         ls -la
-        find . -type f | head -20
+        echo "=== Main directory ==="
+        ls -la main/ 2>/dev/null || echo "No main directory"
+        echo "=== Renderer directory ==="
+        ls -la renderer/ 2>/dev/null || echo "No renderer directory"
 
     - name: Create Flatpak manifest
       run: |
@@ -94,21 +103,29 @@ jobs:
             buildsystem: simple
             build-commands:
               - |
-                # Copy application files
+                # Copy application
                 mkdir -p /app/lib/librelinkupdesktop
                 cp -r ../app-bundle/* /app/lib/librelinkupdesktop/
                 
-                # Create launcher
+                # Create launcher script
                 mkdir -p /app/bin
                 cat > /app/bin/librelinkupdesktop << 'SCRIPT'
                 #!/bin/sh
                 cd /app/lib/librelinkupdesktop
                 export NODE_ENV=production
-                exec ./node_modules/.bin/electron .
+                export ELECTRON_IS_DEV=0
+                
+                # Use electron from node_modules
+                if [ -f "./node_modules/.bin/electron" ]; then
+                  exec ./node_modules/.bin/electron .
+                else
+                  echo "Error: Electron not found"
+                  exit 1
+                fi
                 SCRIPT
                 chmod +x /app/bin/librelinkupdesktop
                 
-                # Desktop integration
+                # Install desktop file
                 mkdir -p /app/share/applications
                 if [ -f "/app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.desktop" ]; then
                   install -Dm644 /app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.desktop /app/share/applications/
@@ -119,14 +136,22 @@ jobs:
                   Name=LibreLinkUp Desktop
                   Exec=librelinkupdesktop
                   Icon=rocks.poopjournal.librelinkupdesktop
+                  Comment=LibreLinkUp Desktop Application
                   Categories=Utility;
                   Terminal=false
                   DESKTOP
                 fi
                 
+                # Install icon
                 mkdir -p /app/share/icons/hicolor/512x512/apps/
                 if [ -f "/app/lib/librelinkupdesktop/resources/icon.png" ]; then
                   install -Dm644 /app/lib/librelinkupdesktop/resources/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
+                fi
+                
+                # Install metainfo
+                mkdir -p /app/share/metainfo
+                if [ -f "/app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.metainfo.xml" ]; then
+                  install -Dm644 /app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.metainfo.xml /app/share/metainfo/
                 fi
             sources:
               - type: dir
