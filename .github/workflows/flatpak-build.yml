@@ -22,25 +22,35 @@ jobs:
         sudo flatpak install -y flathub org.freedesktop.Sdk//23.08
         sudo flatpak install -y flathub org.flatpak.Builder
 
-    - name: Build Electron app outside Flatpak
+    - name: Build complete Electron application
       run: |
         git clone -b feature/trayicon https://github.com/deviitorinc/LibreLinkUpDesktop.git source-repo
         cd source-repo
+        
+        # Install and build the application
         npm install --legacy-peer-deps --no-audit --no-fund
         npm run build
         
-        # Create a simple package structure
+        # Create a complete bundle with all dependencies
         mkdir -p ../app-bundle
+        
+        # Copy the entire built application including node_modules
         cp -r . ../app-bundle/
         cd ../app-bundle
         
-        # Install production dependencies only
-        npm install --production --no-audit --no-fund --legacy-peer-deps
+        # Clean up development files
+        rm -rf .git
+        rm -rf node_modules/.cache
+        find . -name "*.ts" -delete
+        find . -name "*.tsx" -delete
+        find . -name "*.map" -delete
         
-        echo "=== Final app structure ==="
-        find . -name "*.js" -o -name "*.html" -o -name "package.json" | head -20
+        echo "=== App bundle size ==="
+        du -sh .
+        echo "=== Main files ==="
+        find . -name "main.js" -o -name "index.html" -o -name "package.json" | head -10
 
-    - name: Create simple Flatpak manifest
+    - name: Create Flatpak manifest
       run: |
         mkdir -p flathub
         cd flathub
@@ -49,7 +59,7 @@ jobs:
         runtime: org.freedesktop.Platform
         runtime-version: '23.08'
         sdk: org.freedesktop.Sdk
-        command: sh
+        command: librelinkupdesktop
         finish-args:
           - --share=ipc
           - --share=network
@@ -57,48 +67,64 @@ jobs:
           - --socket=wayland
           - --device=dri
           - --filesystem=home
+          - --filesystem=xdg-run/gvfs
 
         modules:
           - name: librelinkupdesktop
             buildsystem: simple
             build-commands:
               - |
-                # Copy the pre-built application
+                # Copy the complete application bundle
                 mkdir -p /app/lib/librelinkupdesktop
                 cp -r ../app-bundle/* /app/lib/librelinkupdesktop/
-                
-                # Install electron in the app directory
-                cd /app/lib/librelinkupdesktop
-                npm install electron --save --production --no-audit --no-fund
                 
                 # Create launcher script
                 mkdir -p /app/bin
                 cat > /app/bin/librelinkupdesktop << 'SCRIPT'
                 #!/bin/sh
                 cd /app/lib/librelinkupdesktop
-                exec ./node_modules/.bin/electron .
+                export NODE_ENV=production
+                export ELECTRON_IS_DEV=0
+                
+                # Use the electron from node_modules
+                if [ -f "./node_modules/.bin/electron" ]; then
+                  exec ./node_modules/.bin/electron .
+                elif [ -f "./node_modules/electron/dist/electron" ]; then
+                  exec ./node_modules/electron/dist/electron .
+                else
+                  echo "Error: Electron not found"
+                  exit 1
+                fi
                 SCRIPT
                 chmod +x /app/bin/librelinkupdesktop
                 
-                # Create basic desktop file
+                # Install desktop integration files
                 mkdir -p /app/share/applications
-                cat > /app/share/applications/rocks.poopjournal.librelinkupdesktop.desktop << 'DESKTOP'
-                [Desktop Entry]
-                Name=LibreLinkUp Desktop
-                Exec=librelinkupdesktop
-                Icon=rocks.poopjournal.librelinkupdesktop
-                Type=Application
-                Categories=Utility;
-                DESKTOP
-                
-                # Create basic icon
-                mkdir -p /app/share/icons/hicolor/512x512/apps/
-                if [ -f "resources/icon.png" ]; then
-                  cp resources/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
+                if [ -f "/app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.desktop" ]; then
+                  install -Dm644 /app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.desktop /app/share/applications/
                 else
-                  # Create placeholder icon
-                  convert -size 512x512 xc:blue /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png 2>/dev/null || \
-                  echo "No icon available, using default"
+                  cat > /app/share/applications/rocks.poopjournal.librelinkupdesktop.desktop << 'DESKTOP'
+                  [Desktop Entry]
+                  Version=1.0
+                  Type=Application
+                  Name=LibreLinkUp Desktop
+                  Exec=librelinkupdesktop
+                  Icon=rocks.poopjournal.librelinkupdesktop
+                  Comment=LibreLinkUp Desktop Application
+                  Categories=Utility;
+                  Terminal=false
+                  StartupWMClass=LibreLinkUp Desktop
+                  DESKTOP
+                fi
+                
+                mkdir -p /app/share/icons/hicolor/512x512/apps/
+                if [ -f "/app/lib/librelinkupdesktop/resources/icon.png" ]; then
+                  install -Dm644 /app/lib/librelinkupdesktop/resources/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
+                fi
+                
+                mkdir -p /app/share/metainfo
+                if [ -f "/app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.metainfo.xml" ]; then
+                  install -Dm644 /app/lib/librelinkupdesktop/rocks.poopjournal.librelinkupdesktop.metainfo.xml /app/share/metainfo/
                 fi
             sources:
               - type: dir
