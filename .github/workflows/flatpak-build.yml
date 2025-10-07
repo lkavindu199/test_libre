@@ -1,19 +1,21 @@
-name: Build Flatpak Application
+name: Generate and Update Flatpak Sources
 
 on: [push, workflow_dispatch]
 
 jobs:
-  build-flatpak:
+  generate-sources:
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install system dependencies
       run: |
         sudo apt update
-        sudo apt install -y flatpak flatpak-builder nodejs npm
+        sudo apt install -y flatpak flatpak-builder nodejs npm python3 python3-pip python3-venv
 
     - name: Setup Flatpak
       run: |
@@ -22,116 +24,78 @@ jobs:
         sudo flatpak install -y flathub org.freedesktop.Sdk//23.08
         sudo flatpak install -y flathub org.flatpak.Builder
         sudo flatpak install -y flathub org.electronjs.Electron2.BaseApp//23.08
+        sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.node20//23.08
 
-    - name: Build Electron application
+    - name: Clone source repository
       run: |
         git clone -b feature/trayicon https://github.com/deviitorinc/LibreLinkUpDesktop.git source-repo
         cd source-repo
         
-        # Install and build
+        # Install dependencies to generate package-lock.json if needed
         npm install --legacy-peer-deps --no-audit --no-fund
-        npm run build
         
-        # Create the app bundle directory structure
-        mkdir -p ../flathub/app-bundle
+        echo "=== Package-lock.json exists ==="
+        [ -f package-lock.json ] && echo "package-lock.json found" || echo "package-lock.json not found"
+
+    - name: Install flatpak-node-generator
+      run: |
+        python3 -m pip install --user pipx
+        python3 -m pipx ensurepath
+        export PATH="$HOME/.local/bin:$PATH"
         
-        # Copy the entire built application including node_modules
-        cp -r . ../flathub/app-bundle/
+        # Clone and install flatpak-builder-tools
+        git clone https://github.com/flatpak/flatpak-builder-tools.git
+        cd flatpak-builder-tools/node
+        pipx install .
         
-        # Remove unnecessary files to reduce size
-        cd ../flathub/app-bundle
-        rm -rf .git .github .gitignore README.md docs .erb
+        echo "=== flatpak-node-generator installed ==="
+        which flatpak-node-generator
+
+    - name: Generate sources.json
+      run: |
+        cd source-repo
         
-        echo "=== App bundle contents ==="
+        echo "=== Current directory contents ==="
         ls -la
-        echo "=== Checking for main entry point ==="
-        find . -name "main.js" -o -name "electron.js" -o -name "index.js" | head -10
-
-    - name: Create Flatpak manifest
-      run: |
-        cd flathub
         
-        # Create the manifest
-        cat > rocks.poopjournal.librelinkupdesktop.yml << 'EOF'
-        app-id: rocks.poopjournal.librelinkupdesktop
-        runtime: org.freedesktop.Platform
-        runtime-version: '23.08'
-        sdk: org.freedesktop.Sdk
-        command: librelinkupdesktop
-        finish-args:
-          - --share=ipc
-          - --share=network
-          - --socket=fallback-x11
-          - --socket=wayland
-          - --device=dri
-          - --filesystem=home
-          - --filesystem=xdg-run/gvfs
+        echo "=== Generating sources ==="
+        export PATH="$HOME/.local/bin:$PATH"
+        flatpak-node-generator npm package-lock.json
+        
+        echo "=== Generated files ==="
+        ls -la generated-sources.json || echo "No generated-sources.json created"
+        
+        # Copy the generated file to the repository root
+        cp generated-sources.json ../generated-sources.json
 
-        modules:
-          - name: librelinkupdesktop
-            buildsystem: simple
-            build-commands:
-              - mkdir -p /app/lib/librelinkupdesktop
-              - cp -r app-bundle/* /app/lib/librelinkupdesktop/
-              - mkdir -p /app/bin
-              - |
-                cat > /app/bin/librelinkupdesktop << 'SCRIPT_EOF'
-                #!/bin/sh
-                cd /app/lib/librelinkupdesktop
-                export NODE_ENV=production
-                export ELECTRON_IS_DEV=0
-                exec npx electron .
-                SCRIPT_EOF
-              - chmod +x /app/bin/librelinkupdesktop
-              - mkdir -p /app/share/applications
-              - |
-                cat > /app/share/applications/rocks.poopjournal.librelinkupdesktop.desktop << 'DESKTOP_EOF'
-                [Desktop Entry]
-                Type=Application
-                Name=LibreLinkUp Desktop
-                Exec=librelinkupdesktop
-                Icon=rocks.poopjournal.librelinkupdesktop
-                Comment=LibreLinkUp Desktop Application
-                Categories=Utility;
-                Terminal=false
-                DESKTOP_EOF
-              - mkdir -p /app/share/icons/hicolor/512x512/apps/
-              - |
-                if [ -f "/app/lib/librelinkupdesktop/resources/icon.png" ]; then
-                  install -Dm644 /app/lib/librelinkupdesktop/resources/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
-                elif [ -f "/app/lib/librelinkupdesktop/assets/icon.png" ]; then
-                  install -Dm644 /app/lib/librelinkupdesktop/assets/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
-                fi
-            sources:
-              - type: dir
-                path: app-bundle
-        EOF
-
-    - name: Verify application structure
+    - name: Verify and commit generated-sources.json
       run: |
-        cd flathub/app-bundle
-        echo "=== Package.json main entry ==="
-        node -p "require('./package.json').main" 2>/dev/null || echo "No main entry found"
-        echo "=== Scripts available ==="
-        node -p "JSON.stringify(require('./package.json').scripts, null, 2)" 2>/dev/null || echo "No scripts found"
-        echo "=== Checking dist directory ==="
-        ls -la dist/ 2>/dev/null || echo "No dist directory"
-        echo "=== Checking release directory ==="
-        ls -la release/ 2>/dev/null || echo "No release directory"
+        echo "=== Verifying generated-sources.json ==="
+        [ -f generated-sources.json ] && echo "generated-sources.json exists" || exit 1
+        
+        echo "=== File size ==="
+        ls -la generated-sources.json
+        
+        echo "=== First few lines ==="
+        head -20 generated-sources.json
 
-    - name: Build the Flatpak
+    - name: Commit generated-sources.json to current repository
       run: |
-        cd flathub
-        flatpak-builder --user --install --force-clean build-dir rocks.poopjournal.librelinkupdesktop.yml
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        # Check if the file has changed
+        if git diff --quiet generated-sources.json 2>/dev/null; then
+          echo "No changes to generated-sources.json"
+        else
+          git add generated-sources.json
+          git commit -m "Update generated-sources.json for Flatpak build"
+          git push
+        fi
 
-    - name: Create distributable bundle
-      run: |
-        cd flathub
-        flatpak build-bundle ~/.local/share/flatpak/repo LibreLinkUpDesktop.flatpak rocks.poopjournal.librelinkupdesktop
-
-    - name: Upload Flatpak bundle
+    - name: Upload generated-sources.json as artifact
       uses: actions/upload-artifact@v4
       with:
-        name: LibreLinkUpDesktop-Flatpak
-        path: flathub/LibreLinkUpDesktop.flatpak
+        name: generated-sources-json
+        path: generated-sources.json
         retention-days: 7
