@@ -20,6 +20,7 @@ jobs:
         sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
         sudo flatpak install -y flathub org.freedesktop.Platform//23.08
         sudo flatpak install -y flathub org.freedesktop.Sdk//23.08
+        sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.node20//23.08
         sudo flatpak install -y flathub org.flatpak.Builder
 
     - name: Setup flatpak-node-generator
@@ -41,16 +42,19 @@ jobs:
         mkdir -p ../flathub
         cp generated-sources.json ../flathub/
 
-    - name: Build application with legacy peer deps
+    - name: Build and package Electron app
       run: |
         cd source-repo
-        # Use legacy-peer-deps to resolve version conflicts
         npm install --legacy-peer-deps --no-audit --no-fund
         npm run build
-        # Verify the build worked
-        ls -la dist/
+        
+        # Check what was built
+        echo "=== Build output ==="
+        find . -type f -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" | head -10
+        ls -la release/ || echo "No release directory"
+        ls -la dist/ || echo "No dist directory"
 
-    - name: Create Flatpak manifest for pre-built app
+    - name: Create Flatpak manifest using electron-base
       run: |
         mkdir -p flathub
         cd flathub
@@ -59,7 +63,9 @@ jobs:
         runtime: org.freedesktop.Platform
         runtime-version: '23.08'
         sdk: org.freedesktop.Sdk
-        command: librelinkupdesktop
+        sdk-extensions:
+          - org.freedesktop.Sdk.Extension.node20
+        command: sh
         finish-args:
           - --share=ipc
           - --share=network
@@ -70,16 +76,51 @@ jobs:
           - --filesystem=xdg-run/gvfs
 
         modules:
-          - name: librelinkupdesktop
+          - name: app-bundle
             buildsystem: simple
             build-commands:
-              - install -Dm755 ../source-repo/dist/librelinkupdesktop /app/bin/librelinkupdesktop
-              - install -Dm644 ../source-repo/resources/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
-              - install -Dm644 ../source-repo/rocks.poopjournal.librelinkupdesktop.desktop /app/share/applications/rocks.poopjournal.librelinkupdesktop.desktop
-              - install -Dm644 ../source-repo/rocks.poopjournal.librelinkupdesktop.metainfo.xml /app/share/metainfo/rocks.poopjournal.librelinkupdesktop.metainfo.xml
+              - |
+                # Install Node.js dependencies
+                export PATH="/usr/lib/sdk/node20/bin:$PATH"
+                npm install --legacy-peer-deps --no-audit --no-fund
+                
+                # Build the app
+                npm run build
+                
+                # The app should be built in release/app/dist/ or similar
+                # Copy the entire app structure
+                mkdir -p /app/lib/librelinkupdesktop
+                if [ -d "release/app/dist" ]; then
+                  cp -r release/app/dist/* /app/lib/librelinkupdesktop/
+                elif [ -d "dist" ]; then
+                  cp -r dist/* /app/lib/librelinkupdesktop/
+                else
+                  # Fallback: copy the entire built structure
+                  cp -r ./* /app/lib/librelinkupdesktop/ || true
+                fi
+                
+                # Create a launcher script that uses system electron
+                cat > /app/bin/librelinkupdesktop << 'SCRIPT'
+                #!/bin/sh
+                # Use electron from node_modules or system
+                if [ -f "/app/lib/librelinkupdesktop/node_modules/electron/dist/electron" ]; then
+                  exec /app/lib/librelinkupdesktop/node_modules/electron/dist/electron /app/lib/librelinkupdesktop
+                else
+                  # Try to use system electron or flatpak electron
+                  exec electron /app/lib/librelinkupdesktop
+                fi
+                SCRIPT
+                chmod +x /app/bin/librelinkupdesktop
+                
+                # Install desktop files
+                install -Dm644 resources/icon.png /app/share/icons/hicolor/512x512/apps/rocks.poopjournal.librelinkupdesktop.png
+                install -Dm644 rocks.poopjournal.librelinkupdesktop.desktop /app/share/applications/rocks.poopjournal.librelinkupdesktop.desktop
+                install -Dm644 rocks.poopjournal.librelinkupdesktop.metainfo.xml /app/share/metainfo/rocks.poopjournal.librelinkupdesktop.metainfo.xml
             sources:
-              - type: dir
-                path: ../source-repo
+              - type: git
+                url: https://github.com/deviitorinc/LibreLinkUpDesktop.git
+                branch: feature/trayicon
+              - generated-sources.json
         EOF
 
     - name: Build the Flatpak
