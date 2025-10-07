@@ -9,6 +9,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install dependencies
       run: |
@@ -49,26 +51,44 @@ jobs:
           echo "Using existing generated-sources.json"
         fi
 
-    - name: Update sources if generated
+    - name: Update sources if generated (with proper permissions)
       run: |
         if [ -f "generated-sources.json" ]; then
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
           git add generated-sources.json
           git commit -m "Update generated-sources.json" || echo "No changes to commit"
-          git push || echo "Nothing to push"
+          git push || echo "Push failed - this is normal for PRs or without write permissions"
         else
           echo "No generated-sources.json to update"
         fi
 
     - name: Build using existing sources
       run: |
-        flatpak-builder --user --install --force-clean build-dir rocks.poopjournal.librelinkupdesktop.yml
+        # Check if the YAML file exists in the source directory
+        if [ -f "source/rocks.poopjournal.librelinkupdesktop.yml" ]; then
+          echo "Building from source directory"
+          cd source
+          flatpak-builder --user --install --force-clean build-dir rocks.poopjournal.librelinkupdesktop.yml
+        elif [ -f "rocks.poopjournal.librelinkupdesktop.yml" ]; then
+          echo "Building from current directory"
+          flatpak-builder --user --install --force-clean build-dir rocks.poopjournal.librelinkupdesktop.yml
+        else
+          echo "Error: Could not find rocks.poopjournal.librelinkupdesktop.yml"
+          exit 1
+        fi
 
     - name: Create bundle
       run: |
-        flatpak-builder --force-clean --repo=repo build-dir rocks.poopjournal.librelinkupdesktop.yml
-        flatpak build-bundle repo librelinkupdesktop.flatpak rocks.poopjournal.librelinkupdesktop
+        if [ -f "source/rocks.poopjournal.librelinkupdesktop.yml" ]; then
+          cd source
+          flatpak-builder --force-clean --repo=repo build-dir rocks.poopjournal.librelinkupdesktop.yml
+          flatpak build-bundle repo librelinkupdesktop.flatpak rocks.poopjournal.librelinkupdesktop
+          cp librelinkupdesktop.flatpak ..
+        else
+          flatpak-builder --force-clean --repo=repo build-dir rocks.poopjournal.librelinkupdesktop.yml
+          flatpak build-bundle repo librelinkupdesktop.flatpak rocks.poopjournal.librelinkupdesktop
+        fi
 
     - name: Save artifact
       uses: actions/upload-artifact@v4
