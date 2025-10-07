@@ -5,9 +5,9 @@ on: [push, workflow_dispatch]
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
+    - name: Checkout Flathub repo (this repo)
       uses: actions/checkout@v4
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
@@ -24,63 +24,66 @@ jobs:
         flatpak --user install -y flathub org.electronjs.Electron2.BaseApp//23.08
         flatpak --user install -y flathub org.freedesktop.Sdk.Extension.node20//23.08
 
-    - name: Get source and generate files
+    - name: Clone upstream Electron source
       run: |
         git clone https://github.com/deviitorinc/LibreLinkUpDesktop.git -b feature/trayicon source
-        cd source
-        
-        # Install flatpak-node-generator
+        echo "✅ Cloned Electron source into $(pwd)/source"
+
+    - name: Install flatpak-node-generator
+      run: |
         python3 -m pip install --user pipx
         python3 -m pipx ensurepath
         export PATH="$HOME/.local/bin:$PATH"
-        
-        # Try installing from git for latest version
         pipx install git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=node
-        
-        # Try generating sources with different approaches
-        flatpak-node-generator npm package-lock.json --output generated-sources-new.json || \
-        flatpak-node-generator npm package-lock.json --xdg-layout --output generated-sources-new.json || \
-        echo "Generation failed, using existing generated-sources.json if available"
-        
-        # Check if generation was successful and replace existing file
-        if [ -f "generated-sources-new.json" ]; then
-          mv generated-sources-new.json generated-sources.json
-          cp generated-sources.json ..
-          echo "Successfully generated and replaced sources"
+
+    - name: Generate or update generated-sources.json
+      run: |
+        cd source
+        if [ -f "package-lock.json" ]; then
+          echo "🔧 Generating Flatpak sources..."
+          flatpak-node-generator npm package-lock.json --output ../generated-sources-new.json || \
+          flatpak-node-generator npm package-lock.json --xdg-layout --output ../generated-sources-new.json
+          cd ..
+          if [ -f "generated-sources-new.json" ]; then
+            mv generated-sources-new.json generated-sources.json
+            echo "✅ Successfully generated new generated-sources.json"
+          else
+            echo "⚠️ Failed to generate sources. Using existing file if present."
+          fi
         else
-          echo "Using existing generated-sources.json"
+          echo "❌ No package-lock.json found in source directory."
         fi
 
-    - name: Update sources if generated (with proper permissions)
+    - name: Commit updated generated-sources.json (if changed)
       run: |
         if [ -f "generated-sources.json" ]; then
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add generated-sources.json
           git commit -m "Update generated-sources.json" || echo "No changes to commit"
-          git push || echo "Push failed - this is normal for PRs or without write permissions"
+          git push || echo "Push skipped (no permissions or PR context)"
         else
-          echo "No generated-sources.json to update"
+          echo "No generated-sources.json found to commit."
         fi
 
-    - name: Build using existing sources
+    - name: Build Flatpak
       run: |
-        echo "Building from Flathub repo"
-        flatpak-builder --user --install --force-clean build-dir rocks.poopjournal.librelinkupdesktop.yml
-
-    - name: Create bundle
-      run: |
-        if [ -f "source/rocks.poopjournal.librelinkupdesktop.yml" ]; then
-          cd source
-          flatpak-builder --force-clean --repo=repo build-dir rocks.poopjournal.librelinkupdesktop.yml
-          flatpak build-bundle repo librelinkupdesktop.flatpak rocks.poopjournal.librelinkupdesktop
-          cp librelinkupdesktop.flatpak ..
+        echo "🏗️ Building Flatpak..."
+        if [ -f "rocks.poopjournal.librelinkupdesktop.yml" ]; then
+          flatpak-builder --user --install --force-clean build-dir rocks.poopjournal.librelinkupdesktop.yml
         else
-          flatpak-builder --force-clean --repo=repo build-dir rocks.poopjournal.librelinkupdesktop.yml
-          flatpak build-bundle repo librelinkupdesktop.flatpak rocks.poopjournal.librelinkupdesktop
+          echo "❌ Manifest file 'rocks.poopjournal.librelinkupdesktop.yml' not found in repository root."
+          exit 1
         fi
 
-    - name: Save artifact
+    - name: Create Flatpak bundle
+      run: |
+        echo "📦 Creating Flatpak bundle..."
+        flatpak-builder --force-clean --repo=repo build-dir rocks.poopjournal.librelinkupdesktop.yml
+        flatpak build-bundle repo librelinkupdesktop.flatpak rocks.poopjournal.librelinkupdesktop
+        echo "✅ Bundle created: librelinkupdesktop.flatpak"
+
+    - name: Upload Flatpak artifact
       uses: actions/upload-artifact@v4
       with:
         name: librelinkupdesktop-flatpak
