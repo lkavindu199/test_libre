@@ -9,90 +9,65 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y flatpak flatpak-builder python3-pip python3-venv
+        sudo apt install -y flatpak flatpak-builder
 
-    - name: Setup Flatpak (user mode)
+    - name: Setup Flatpak
       run: |
         flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
         flatpak --user install -y flathub org.flatpak.Builder
         flatpak --user install -y flathub org.electronjs.Electron2.BaseApp//23.08
         flatpak --user install -y flathub org.freedesktop.Sdk.Extension.node20//23.08
 
-    - name: Get source and generate files
+    - name: Explore source repository structure
       run: |
-        git clone https://github.com/deviitorinc/LibreLinkUpDesktop.git -b feature/trayicon source
-        cd source
-        
-        # Install flatpak-node-generator
-        python3 -m pip install --user pipx
-        python3 -m pipx ensurepath
-        export PATH="$HOME/.local/bin:$PATH"
-        
-        # Try installing from git for latest version
-        pipx install git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=node
-        
-        # Try generating sources with different approaches
-        flatpak-node-generator npm package-lock.json --output generated-sources-new.json || \
-        flatpak-node-generator npm package-lock.json --xdg-layout --output generated-sources-new.json || \
-        echo "Generation failed, using existing generated-sources.json if available"
-        
-        # Check if generation was successful and replace existing file
-        if [ -f "generated-sources-new.json" ]; then
-          mv generated-sources-new.json generated-sources.json
-          cp generated-sources.json ..
-          echo "Successfully generated and replaced sources"
-        else
-          echo "Using existing generated-sources.json"
-        fi
+        git clone https://github.com/deviitorinc/LibreLinkUpDesktop.git -b feature/trayicon librelinkup-source
+        cd librelinkup-source
+        echo "=== Repository Contents ==="
+        ls -la
+        echo "=== Looking for YAML files ==="
+        find . -name "*.yml" -o -name "*.yaml" | head -20
+        echo "=== Looking for Flatpak configuration files ==="
+        find . -name "*.json" -o -name "*.yml" -o -name "*.yaml" | grep -E "(flatpak|manifest)" | head -20
 
-    - name: Update sources if generated (with proper permissions)
+    - name: Build from Flathub repository (if YAML exists elsewhere)
       run: |
-        if [ -f "generated-sources.json" ]; then
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add generated-sources.json
-          git commit -m "Update generated-sources.json" || echo "No changes to commit"
-          git push || echo "Push failed - this is normal for PRs or without write permissions"
-        else
-          echo "No generated-sources.json to update"
-        fi
-
-    - name: Build using existing sources
-      run: |
-        # Check if the YAML file exists in the source directory
-        if [ -f "source/rocks.poopjournal.librelinkupdesktop.yml" ]; then
-          echo "Building from source directory"
-          cd source
-          flatpak-builder --user --install --force-clean build-dir rocks.poopjournal.librelinkupdesktop.yml
-        elif [ -f "rocks.poopjournal.librelinkupdesktop.yml" ]; then
-          echo "Building from current directory"
+        # Clone the Flathub repository that contains the actual YAML file
+        git clone https://github.com/flathub/rocks.poopjournal.librelinkupdesktop.git flathub-repo
+        cd flathub-repo
+        echo "=== Flathub Repository Contents ==="
+        ls -la
+        echo "=== Looking for YAML files in Flathub repo ==="
+        find . -name "*.yml" -o -name "*.yaml" | head -20
+        
+        # Try to build if YAML file exists
+        if [ -f "rocks.poopjournal.librelinkupdesktop.yml" ]; then
+          echo "Found YAML file in Flathub repo, building..."
           flatpak-builder --user --install --force-clean build-dir rocks.poopjournal.librelinkupdesktop.yml
         else
-          echo "Error: Could not find rocks.poopjournal.librelinkupdesktop.yml"
-          exit 1
+          echo "No YAML file found in Flathub repo either"
         fi
 
-    - name: Create bundle
+    - name: Create bundle from Flathub repo
       run: |
-        if [ -f "source/rocks.poopjournal.librelinkupdesktop.yml" ]; then
-          cd source
+        cd flathub-repo
+        if [ -f "rocks.poopjournal.librelinkupdesktop.yml" ]; then
           flatpak-builder --force-clean --repo=repo build-dir rocks.poopjournal.librelinkupdesktop.yml
           flatpak build-bundle repo librelinkupdesktop.flatpak rocks.poopjournal.librelinkupdesktop
           cp librelinkupdesktop.flatpak ..
         else
-          flatpak-builder --force-clean --repo=repo build-dir rocks.poopjournal.librelinkupdesktop.yml
-          flatpak build-bundle repo librelinkupdesktop.flatpak rocks.poopjournal.librelinkupdesktop
+          echo "Cannot create bundle - no YAML file found"
         fi
 
     - name: Save artifact
+      if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: librelinkupdesktop-flatpak
-        path: librelinkupdesktop.flatpak
+        name: repository-exploration
+        path: |
+          librelinkup-source/
+          flathub-repo/
         retention-days: 30
