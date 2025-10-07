@@ -15,26 +15,13 @@ jobs:
         sudo apt update
         sudo apt install -y flatpak flatpak-builder
 
-    - name: Setup Flatpak with complete runtime stack
+    - name: Setup Flatpak
       run: |
         sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-        # Update remote info
-        sudo flatpak update --appstream
-        
-        # Install complete SDK stack
         sudo flatpak install -y flathub org.freedesktop.Sdk//23.08
         sudo flatpak install -y flathub org.freedesktop.Platform//23.08
         sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.node20//23.08
         sudo flatpak install -y flathub org.flatpak.Builder
-
-    - name: Verify installations
-      run: |
-        echo "Installed runtimes:"
-        flatpak list --runtime | grep freedesktop || echo "No freedesktop runtimes found"
-        echo "Installed SDKs:"
-        flatpak list --runtime | grep SDK || echo "No SDKs found"
-        echo "Available Electron runtimes:"
-        flatpak remote-ls flathub | grep -i electron || echo "No Electron runtimes found"
 
     - name: Setup flatpak-node-generator
       run: |
@@ -55,7 +42,7 @@ jobs:
         mkdir -p ../flathub
         cp generated-sources.json ../flathub/
 
-    - name: Create Flatpak manifest
+    - name: Create Flatpak manifest for Electron app
       run: |
         cd flathub
         cat > rocks.poopjournal.librelinkupdesktop.yml << 'EOF'
@@ -65,7 +52,7 @@ jobs:
         sdk: org.freedesktop.Sdk
         sdk-extensions:
           - org.freedesktop.Sdk.Extension.node20
-        command: librelinkupdesktop
+        command: electron
         finish-args:
           - --share=ipc
           - --share=network
@@ -75,20 +62,15 @@ jobs:
           - --filesystem=home
           - --filesystem=xdg-run/gvfs
 
-        build-options:
-          env:
-            NODE_ENV: production
-
         modules:
-          - name: nodejs
+          - name: electron
             buildsystem: simple
             build-commands:
-              - install -Dm755 /usr/bin/flatpak-node /app/bin/flatpak-node
+              - npm install electron --save-dev
+              - cp node_modules/electron/dist/electron /app/bin/electron
             sources:
-              - type: script
-                commands:
-                  - flatpak-node
-                dest-filename: flatpak-node
+              - type: dir
+                path: .
 
           - name: librelinkupdesktop
             buildsystem: simple
@@ -104,6 +86,10 @@ jobs:
                 url: https://github.com/deviitorinc/LibreLinkUpDesktop.git
                 branch: feature/trayicon
               - generated-sources.json
+              - type: script
+                dest-filename: run.sh
+                commands:
+                  - /app/bin/electron /app/bin/librelinkupdesktop "$@"
         EOF
 
     - name: Build the Flatpak
