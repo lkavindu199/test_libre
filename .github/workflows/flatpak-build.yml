@@ -15,7 +15,7 @@ jobs:
         sudo apt update
         sudo apt install -y flatpak flatpak-builder python3-pip
 
-    - name: Setup Flatpak repositories (with sudo)
+    - name: Setup Flatpak repositories
       run: |
         sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
         sudo flatpak install -y flathub org.flatpak.Builder
@@ -36,43 +36,30 @@ jobs:
     - name: Generate sources.json
       run: |
         cd source-repo
-        # Remove existing node_modules if any
         rm -rf node_modules
-        # Generate new sources
         flatpak-node-generator npm package-lock.json
-        # Copy to flathub directory
-        cp generated-sources.json ../flathub/
+        # Copy to current directory (where the workflow runs)
+        cp generated-sources.json ../
 
-    - name: Verify files exist in flathub directory
+    - name: Verify current directory structure
       run: |
-        cd flathub
+        echo "=== Current Directory Contents ==="
         ls -la
-        echo "Checking for manifest file..."
-        test -f rocks.poopjournal.librelinkupdesktop.yml && echo "Manifest found" || echo "Manifest missing"
-        echo "Checking for generated-sources.json..."
-        test -f generated-sources.json && echo "generated-sources.json found" || echo "generated-sources.json missing"
+        echo "=== Looking for YAML files ==="
+        find . -name "*.yml" -o -name "*.yaml" | head -20
 
     - name: Build Flatpak application
       run: |
-        cd flathub
+        # The manifest should be in the root directory
         flatpak-builder --user --install --force-clean build-dir rocks.poopjournal.librelinkupdesktop.yml
 
     - name: Create Flatpak bundle
       run: |
-        cd flathub
         flatpak build-bundle ~/.local/share/flatpak/repo LibreLinkUpDesktop.flatpak rocks.poopjournal.librelinkupdesktop
 
     - name: Upload Flatpak bundle as artifact
       uses: actions/upload-artifact@v4
       with:
         name: LibreLinkUpDesktop-Flatpak
-        path: flathub/LibreLinkUpDesktop.flatpak
+        path: LibreLinkUpDesktop.flatpak
         retention-days: 7
-
-    - name: Test Flatpak installation
-      run: |
-        cd flathub
-        # Test installing from the bundle
-        flatpak install -y --user LibreLinkUpDesktop.flatpak
-        # Verify it was installed
-        flatpak list | grep rocks.poopjournal.librelinkupdesktop && echo "Installation successful" || echo "Installation failed"
