@@ -1,0 +1,51 @@
+name: Build Flatpak
+
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y flatpak flatpak-builder
+        flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+        flatpak install -y flathub org.flatpak.Builder
+        flatpak install -y flathub org.electronjs.Electron2.BaseApp//23.08
+        flatpak install -y flathub org.freedesktop.Sdk.Extension.node20//23.08
+
+    - name: Get source and generate files
+      run: |
+        git clone https://github.com/deviitorinc/LibreLinkUpDesktop.git -b feature/trayicon source
+        cd source
+        python3 -m pip install pipx
+        pipx install flatpak-node-generator
+        flatpak-node-generator npm package-lock.json
+        cp generated-sources.json ..
+
+    - name: Update sources
+      run: |
+        cp generated-sources.json .
+        git add generated-sources.json
+        git commit -m "Update sources" || true
+        git push || true
+
+    - name: Build and install
+      run: |
+        flatpak-builder --user --install --force-clean build rocks.poopjournal.librelinkupdesktop.yml
+
+    - name: Create bundle
+      run: |
+        flatpak-builder --force-clean --repo=repo build rocks.poopjournal.librelinkupdesktop.yml
+        flatpak build-bundle repo app.flatpak rocks.poopjournal.librelinkupdesktop
+
+    - name: Save artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: flatpak-app
+        path: app.flatpak
