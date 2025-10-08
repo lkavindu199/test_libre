@@ -1,108 +1,82 @@
-name: Generate and Update Flatpak Sources
+name: Create PR in Other Repo
 
-# on:
-#   workflow_dispatch:
-#   push:
-#     branches: [ main, master ]
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target-repo:
+        description: 'Target repository (owner/repo)'
+        required: true
+      target-branch:
+        description: 'Target branch'
+        required: true
+        default: 'main'
 
 jobs:
-  generate-sources:
+  create-pr:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        fetch-depth: 0
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
 
-    - name: Install system dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y flatpak flatpak-builder nodejs npm python3 python3-pip python3-venv
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-    - name: Setup Flatpak
-      run: |
-        sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-        sudo flatpak install -y flathub org.freedesktop.Platform//23.08
-        sudo flatpak install -y flathub org.freedesktop.Sdk//23.08
-        sudo flatpak install -y flathub org.flatpak.Builder
-        sudo flatpak install -y flathub org.electronjs.Electron2.BaseApp//23.08
-        sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.node20//23.08
+      - name: Install GitHub CLI
+        run: |
+          type -p gh >/dev/null || curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+          sudo apt update
+          sudo apt install gh -y
 
-    - name: Clone source repository
-      run: |
-        git clone https://github.com/Crazy-Marvin/LibreLinkUpDesktop.git source-repo
-        cd source-repo
-        
-        # Install dependencies to generate package-lock.json if needed
-        npm install --legacy-peer-deps --no-audit --no-fund
-        
-        echo "=== Package-lock.json exists ==="
-        [ -f package-lock.json ] && echo "package-lock.json found" || echo "package-lock.json not found"
+      - name: Setup GitHub CLI authentication
+        run: gh auth setup-git
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
 
-    - name: Install flatpak-node-generator
-      run: |
-        python3 -m pip install --user pipx
-        python3 -m pipx ensurepath
-        export PATH="$HOME/.local/bin:$PATH"
-        
-        # Clone and install flatpak-builder-tools
-        git clone https://github.com/flatpak/flatpak-builder-tools.git
-        cd flatpak-builder-tools/node
-        pipx install .
-        
-        echo "=== flatpak-node-generator installed ==="
-        which flatpak-node-generator
+      - name: Sync to target repo and create PR
+        run: |
+          # Set variables
+          TARGET_REPO="${{ github.event.inputs.target-repo }}"
+          TARGET_BRANCH="${{ github.event.inputs.target-branch || 'main' }}"
+          
+          # Use default if no input provided
+          if [ -z "$TARGET_REPO" ]; then
+            TARGET_REPO="owner/target-repo"
+          fi
 
-    - name: Generate sources.json
-      run: |
-        cd source-repo
-        
-        echo "=== Current directory contents ==="
-        ls -la
-        
-        echo "=== Generating sources ==="
-        export PATH="$HOME/.local/bin:$PATH"
-        flatpak-node-generator npm package-lock.json
-        
-        echo "=== Generated files ==="
-        ls -la generated-sources.json || echo "No generated-sources.json created"
-        
-        # Copy the generated file to the workspace
-        cp generated-sources.json $GITHUB_WORKSPACE/generated-sources.json
+          # Clone target repo
+          git clone https://${{ secrets.PAT_TOKEN }}@github.com/$TARGET_REPO.git target-repo
+          cd target-repo
 
-    - name: Verify generated-sources.json
-      run: |
-        echo "=== Verifying generated-sources.json ==="
-        [ -f generated-sources.json ] && echo "generated-sources.json exists" || exit 1
-        
-        echo "=== File size ==="
-        ls -la generated-sources.json
-        
-        echo "=== First few lines ==="
-        head -20 generated-sources.json
+          # Create unique branch name
+          BRANCH_NAME="sync-$(date +%s)-${{ github.sha }}"
 
-    - name: Commit and push generated-sources.json
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add generated-sources.json
-        
-        # Check if there are changes to commit
-        if ! git diff --staged --quiet; then
-          git commit -m "Update generated-sources.json for Flatpak build [skip ci]"
-          git push
-          echo "Successfully pushed updated generated-sources.json to repository"
-        else
-          echo "No changes to generated-sources.json - skipping commit"
-        fi
+          # Create and switch to new branch
+          git checkout -b $BRANCH_NAME
 
-    - name: Upload generated-sources.json as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: generated-sources-json
-        path: generated-sources.json
-        retention-days: 7
+          # Copy files (adjust this part based on what you want to sync)
+          cp -r ../* . || true
+          cp ../.* . || true
+          rm -rf .git
+
+          # Add, commit, and push
+          git add .
+          if ! git diff --staged --quiet; then
+            git commit -m "Automated sync from ${{ github.repository }} @ ${{ github.sha }}"
+            git push origin $BRANCH_NAME
+
+            # Create pull request
+            gh pr create \
+              --base $TARGET_BRANCH \
+              --head $BRANCH_NAME \
+              --title "Automated sync from ${{ github.repository }}" \
+              --body "This PR was automatically created from ${{ github.repository }}@${{ github.sha }}"
+          else
+            echo "No changes to commit"
+          fi
