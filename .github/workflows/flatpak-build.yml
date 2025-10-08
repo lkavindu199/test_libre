@@ -16,7 +16,6 @@ jobs:
       uses: actions/checkout@v4
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-        fetch-depth: 0
 
     - name: Install system dependencies
       run: |
@@ -71,8 +70,8 @@ jobs:
         echo "=== Generated files ==="
         ls -la generated-sources.json || echo "No generated-sources.json created"
         
-        # Copy the generated file to the repository root
-        cp generated-sources.json ../generated-sources.json
+        # Copy the generated file to the workspace
+        cp generated-sources.json $GITHUB_WORKSPACE/generated-sources.json
 
     - name: Verify generated-sources.json
       run: |
@@ -85,33 +84,16 @@ jobs:
         echo "=== First few lines ==="
         head -20 generated-sources.json
 
-    - name: Commit and push new generated-sources.json
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        
-        # Always replace the existing file and commit
-        echo "=== Replacing existing generated-sources.json ==="
-        cp generated-sources.json generated-sources.json.new
-        mv generated-sources.json.new generated-sources.json
-        
-        echo "=== Current git status ==="
-        git status
-        
-        echo "=== Adding generated-sources.json to git ==="
-        git add generated-sources.json
-        
-        echo "=== Checking for changes ==="
-        if git diff --staged --quiet; then
-          echo "No changes detected in generated-sources.json"
-        else
-          echo "Changes detected - committing and pushing"
-          git commit -m "Update generated-sources.json for Flatpak build"
-          
-          echo "=== Pushing changes to repository ==="
-          git push
-          echo "Successfully pushed new generated-sources.json to repository"
-        fi
+    - name: Update generated-sources.json in repository
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        file_pattern: generated-sources.json
+        commit_message: "Update generated-sources.json for Flatpak build"
+        commit_user_name: "GitHub Action"
+        commit_user_email: "action@github.com"
+        commit_author: "GitHub Action <action@github.com>"
+        skip_fetch: true
+        skip_checkout: true
 
     - name: Upload generated-sources.json as artifact
       uses: actions/upload-artifact@v4
