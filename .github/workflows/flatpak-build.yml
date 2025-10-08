@@ -103,7 +103,7 @@ jobs:
             if git diff --staged --quiet; then
               echo "No changes to commit"
             else
-              git commit -m "Add generated-sources.json for Flatpak build"
+              git commit -m "Add generated-sources.json"
               git push
             fi
           else
@@ -115,10 +115,3 @@ jobs:
           echo "generated-sources.json not found - something went wrong"
           exit 1
         fi
-
-    - name: Upload generated-sources.json as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: generated-sources-json
-        path: generated-sources.json
-        retention-days: 7
