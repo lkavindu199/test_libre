@@ -34,7 +34,7 @@ jobs:
 
     - name: Clone source repository
       run: |
-        git clone -b development https://github.com/deviitorinc/LibreLinkUpDesktop.git source-repo
+        git clone https://github.com/Crazy-Marvin/LibreLinkUpDesktop.git source-repo
         cd source-repo
         
         # Install dependencies to generate package-lock.json if needed
