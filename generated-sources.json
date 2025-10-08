@@ -1,11 +1,4 @@
-[
-    {
-        "type": "file",
-        "url": "https://codeload.github.com/electron/node-gyp/tar.gz/06b29aafb7708acef8b3669835c8a7857ebc92d2",
-        "sha512": "3178339530c41277490774c16ef779b8540effc81a20da351df7a7f2f79fe6babf54754f781eb7baebffb8ee7ef0616c009feb6aebba5c1efd4ba2b8f9a5dcfb",
-        "dest-filename": "339530c41277490774c16ef779b8540effc81a20da351df7a7f2f79fe6babf54754f781eb7baebffb8ee7ef0616c009feb6aebba5c1efd4ba2b8f9a5dcfb",
-        "dest": "flatpak-node/npm-cache/_cacache/content-v2/sha512/31/78"
-    },
+
     {
         "type": "file",
         "url": "https://github.com/electron/electron/releases/download/v34.5.0/SHASUMS256.txt",
