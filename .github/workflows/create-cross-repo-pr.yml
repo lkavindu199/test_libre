@@ -1,0 +1,99 @@
+name: Create Cross-Repository PR
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      target-repo:
+        description: 'Target repository (owner/repo)'
+        required: true
+        default: 'owner/target-repo'
+      target-branch:
+        description: 'Target branch in the other repository'
+        required: true
+        default: 'main'
+      pr-title:
+        description: 'PR title'
+        required: true
+        default: 'Automated PR from ${{ github.repository }}'
+      pr-body:
+        description: 'PR description'
+        required: false
+
+jobs:
+  create-cross-repo-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Setup Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create PR in target repository
+        env:
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_BRANCH: ${{ github.ref_name }}
+          TARGET_REPO: ${{ inputs.target-repo || 'owner/target-repo' }}
+          TARGET_BRANCH: ${{ inputs.target-branch || 'main' }}
+          PR_TITLE: ${{ inputs.pr-title || 'Automated PR from ${{ github.repository }}' }}
+          PR_BODY: ${{ inputs.pr-body || 'This PR was automatically created from ${{ github.repository }}@${{ github.ref_name }}' }}
+        run: |
+          # Clone the target repository
+          git clone https://${{ secrets.PAT_TOKEN }}@github.com/$TARGET_REPO.git target-repo
+          cd target-repo
+
+          # Create a new branch for the PR
+          PR_BRANCH_NAME="sync-from-$SOURCE_REPO-${SOURCE_BRANCH//\//-}-$GITHUB_SHA"
+          git checkout -b $PR_BRANCH_NAME
+
+          # Copy files from source to target (adjust paths as needed)
+          # Example: Copy all files from root, excluding .git
+          rsync -av --exclude='.git' ../$GITHUB_WORKSPACE/ ./
+
+          # Commit changes
+          git add .
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          git commit -m "Sync from $SOURCE_REPO@$SOURCE_BRANCH"
+
+          # Push to target repository
+          git push origin $PR_BRANCH_NAME
+
+          # Create PR using GitHub CLI
+          gh pr create \
+            --base $TARGET_BRANCH \
+            --head $PR_BRANCH_NAME \
+            --title "$PR_TITLE" \
+            --body "$PR_BODY" \
+            --repo $TARGET_REPO
+
+      - name: Create PR using REST API (Alternative approach)
+        if: always() && steps.create-pr.outcome == 'failure'
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          TARGET_REPO: ${{ inputs.target-repo || 'owner/target-repo' }}
+          TARGET_BRANCH: ${{ inputs.target-branch || 'main' }}
+        run: |
+          # This step uses the GitHub REST API directly
+          PR_BRANCH_NAME="sync-from-${{ github.repository }}-${{ github.ref_name }}-$GITHUB_SHA"
+          
+          curl -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/$TARGET_REPO/pulls \
+            -d "{
+              \"title\": \"${{ inputs.pr-title || 'Automated PR' }}\",
+              \"body\": \"${{ inputs.pr-body || 'Automatically created PR' }}\",
+              \"head\": \"$PR_BRANCH_NAME\",
+              \"base\": \"$TARGET_BRANCH\"
+            }"
