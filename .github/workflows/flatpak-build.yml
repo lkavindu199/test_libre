@@ -85,33 +85,37 @@ jobs:
         echo "=== First few lines ==="
         head -20 generated-sources.json
 
-    - name: Commit and push generated-sources.json
+    - name: Commit and push new generated-sources.json
       run: |
-        # Move the generated file to replace any existing one
-        mv generated-sources.json generated-sources.json.new
-        mv generated-sources.json.new generated-sources.json
-        
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         
-        # Check if file exists in repo and if it has changed
-        if [ -f generated-sources.json ]; then
-          if git diff --quiet generated-sources.json 2>/dev/null || [ ! -f generated-sources.json ]; then
-            echo "No changes to generated-sources.json or file doesn't exist in repo"
-            # Add the file if it doesn't exist in repo
-            git add generated-sources.json
-            if git diff --staged --quiet; then
-              echo "No changes to commit"
-            else
-              git commit -m "Add generated-sources.json"
-              git push
-            fi
-          else
-            git add generated-sources.json
-            git commit -m "Update generated-sources.json for Flatpak build"
-            git push
-          fi
+        # Always replace the existing file and commit
+        echo "=== Replacing existing generated-sources.json ==="
+        cp generated-sources.json generated-sources.json.new
+        mv generated-sources.json.new generated-sources.json
+        
+        echo "=== Current git status ==="
+        git status
+        
+        echo "=== Adding generated-sources.json to git ==="
+        git add generated-sources.json
+        
+        echo "=== Checking for changes ==="
+        if git diff --staged --quiet; then
+          echo "No changes detected in generated-sources.json"
         else
-          echo "generated-sources.json not found - something went wrong"
-          exit 1
+          echo "Changes detected - committing and pushing"
+          git commit -m "Update generated-sources.json for Flatpak build"
+          
+          echo "=== Pushing changes to repository ==="
+          git push
+          echo "Successfully pushed new generated-sources.json to repository"
         fi
+
+    - name: Upload generated-sources.json as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: generated-sources-json
+        path: generated-sources.json
+        retention-days: 7
