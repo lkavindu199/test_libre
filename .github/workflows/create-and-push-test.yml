@@ -1,4 +1,4 @@
-name: Create and Push Test File
+name: Create and Push Test
 
 on:
   push:
