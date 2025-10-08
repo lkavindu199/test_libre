@@ -1,16 +1,22 @@
 name: Generate and Update Flatpak Sources
 
-on: [workflow_dispatch]
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
 
 jobs:
   generate-sources:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
 
     - name: Install system dependencies
       run: |
@@ -68,7 +74,7 @@ jobs:
         # Copy the generated file to the repository root
         cp generated-sources.json ../generated-sources.json
 
-    - name: Verify and commit generated-sources.json
+    - name: Verify generated-sources.json
       run: |
         echo "=== Verifying generated-sources.json ==="
         [ -f generated-sources.json ] && echo "generated-sources.json exists" || exit 1
@@ -79,18 +85,35 @@ jobs:
         echo "=== First few lines ==="
         head -20 generated-sources.json
 
-    - name: Commit generated-sources.json to current repository
+    - name: Commit and push generated-sources.json
       run: |
+        # Move the generated file to replace any existing one
+        mv generated-sources.json generated-sources.json.new
+        mv generated-sources.json.new generated-sources.json
+        
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         
-        # Check if the file has changed
-        if git diff --quiet generated-sources.json 2>/dev/null; then
-          echo "No changes to generated-sources.json"
+        # Check if file exists in repo and if it has changed
+        if [ -f generated-sources.json ]; then
+          if git diff --quiet generated-sources.json 2>/dev/null || [ ! -f generated-sources.json ]; then
+            echo "No changes to generated-sources.json or file doesn't exist in repo"
+            # Add the file if it doesn't exist in repo
+            git add generated-sources.json
+            if git diff --staged --quiet; then
+              echo "No changes to commit"
+            else
+              git commit -m "Add generated-sources.json for Flatpak build"
+              git push
+            fi
+          else
+            git add generated-sources.json
+            git commit -m "Update generated-sources.json for Flatpak build"
+            git push
+          fi
         else
-          git add generated-sources.json
-          git commit -m "Update generated-sources.json for Flatpak build"
-          git push
+          echo "generated-sources.json not found - something went wrong"
+          exit 1
         fi
 
     - name: Upload generated-sources.json as artifact

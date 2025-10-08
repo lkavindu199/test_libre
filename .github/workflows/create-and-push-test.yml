@@ -1,8 +1,8 @@
 name: Create and Push Test File
 
-on:
-  push:
-    branches: [ "**" ]
+# on:
+#   push:
+#     branches: [ "**" ]
 
 jobs:
   create-and-push:
