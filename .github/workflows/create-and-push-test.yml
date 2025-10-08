@@ -1,0 +1,32 @@
+name: Create and Push Test File
+
+on:
+  push:
+    branches: [ "**" ]
+
+jobs:
+  create-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    - name: Create test.txt file
+      run: |
+        echo "Test file created by GitHub Actions" > test.txt
+        echo "Created at: $(date)" >> test.txt
+        echo "Commit: ${{ github.sha }}" >> test.txt
+
+    - name: Commit and push if changed
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add test.txt
+        git diff --staged --quiet || git commit -m "Auto-create test.txt via GitHub Actions"
+        git push

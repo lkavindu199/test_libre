@@ -1,6 +1,6 @@
 name: Generate and Update Flatpak Sources
 
-on: [push, workflow_dispatch]
+on: [workflow_dispatch]
 
 jobs:
   generate-sources:
