@@ -37,7 +37,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/lkavindu199/LibreLinkUpDesktop_new1.git
-        commit: 6a1e8d7a11365d03380571040f611853c854876a
+        commit: 6uuuu
       - generated-sources.json
       - type: script
         dest-filename: run.sh
