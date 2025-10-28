@@ -19930,8 +19930,8 @@
   },
   {
     "type": "metadata",
-    "generated_at": "2025-10-28T10:25:55Z",
-    "workflow_run": "18871552149",
+    "generated_at": "2025-10-28T11:57:05Z",
+    "workflow_run": "18873822493",
     "purpose": "flatpak_build"
   }
 ]
