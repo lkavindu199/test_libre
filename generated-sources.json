@@ -1,28 +1,4 @@
-[
-  {
-    "type": "file",
-    "url": "https://codeload.github.com/electron/node-gyp/tar.gz/06b29aafb7708acef8b3669835c8a7857ebc92d2",
-    "sha512": "3178339530c41277490774c16ef779b8540effc81a20da351df7a7f2f79fe6babf54754f781eb7baebffb8ee7ef0616c009feb6aebba5c1efd4ba2b8f9a5dcfb",
-    "dest-filename": "339530c41277490774c16ef779b8540effc81a20da351df7a7f2f79fe6babf54754f781eb7baebffb8ee7ef0616c009feb6aebba5c1efd4ba2b8f9a5dcfb",
-    "dest": "flatpak-node/npm-cache/_cacache/content-v2/sha512/31/78"
-  },
-  {
-    "type": "file",
-    "url": "https://github.com/electron/electron/releases/download/v34.5.0/SHASUMS256.txt",
-    "sha256": "f97dec86ec2009df888e189de10d8d89ebcc3d6aca9c0bbc597e61aa678eaf4b",
-    "dest-filename": "SHASUMS256.txt-34.5.0",
-    "dest": "flatpak-node/cache/electron"
-  },
-  {
-    "type": "file",
-    "url": "https://github.com/electron/electron/releases/download/v34.5.0/electron-v34.5.0-linux-arm64.zip",
-    "sha256": "7eee40339a9ad637c6360edfd02d5e02522432c7b0f0c70cf00cf4684e1b6691",
-    "dest-filename": "electron-v34.5.0-linux-arm64.zip",
-    "dest": "flatpak-node/cache/electron",
-    "only-arches": [
-      "aarch64"
-    ]
-  },
+
   {
     "type": "file",
     "url": "https://github.com/electron/electron/releases/download/v34.5.0/electron-v34.5.0-linux-armv7l.zip",
